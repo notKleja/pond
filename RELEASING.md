@@ -99,6 +99,11 @@ pnpm dist:win
 
 Artifacts land in `apps/desktop/dist/`.
 
+The `Package desktop` verification workflow builds each Mac architecture on a
+native runner: `macos-latest` for arm64 and `macos-15-intel` for x64. Use
+`pnpm dist:mac:arm64` or `pnpm dist:mac:x64` for the matching local
+architecture; this keeps native modules and FFmpeg aligned with the app.
+
 The root command builds the desktop once, then packages `out/**`. Desktop
 `dist:*` scripts consume an existing build and do not run Electron/Vite again.
 

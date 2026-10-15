@@ -40,6 +40,8 @@
     "sbom:generate": "pnpm sbom --sbom-format spdx --prod --out pond.spdx.json",
     "dist": "turbo run dist",
     "dist:mac": "turbo run build --filter @pond/desktop --filter @pond/extension && pnpm --filter @pond/desktop dist:mac",
+    "dist:mac:arm64": "turbo run build --filter @pond/desktop --filter @pond/extension && pnpm --filter @pond/desktop dist:mac:arm64",
+    "dist:mac:x64": "turbo run build --filter @pond/desktop --filter @pond/extension && pnpm --filter @pond/desktop dist:mac:x64",
     "dist:mac:publish": "turbo run build --filter @pond/desktop --filter @pond/extension && pnpm --filter @pond/desktop dist:mac:publish",
     "dist:win": "turbo run build --filter @pond/desktop --filter @pond/extension && pnpm --filter @pond/desktop dist:win",
     "dist:win:publish": "turbo run build --filter @pond/desktop --filter @pond/extension && pnpm --filter @pond/desktop dist:win:publish",

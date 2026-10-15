@@ -31,6 +31,7 @@
     "dist": "node ./scripts/build-native-host.mjs && electron-builder --mac --arm64 --x64",
     "dist:mac": "node ./scripts/build-native-host.mjs && electron-builder --mac --arm64 --x64",
     "dist:mac:arm64": "node ./scripts/build-native-host.mjs && electron-builder --mac --arm64",
+    "dist:mac:x64": "node ./scripts/build-native-host.mjs && electron-builder --mac --x64",
     "dist:mac:publish": "node ./scripts/build-native-host.mjs && electron-builder --mac --arm64 --x64 --publish always",
     "dist:win": "node ./scripts/build-native-host.mjs && electron-builder --win --x64",
     "dist:win:publish": "node ./scripts/build-native-host.mjs && electron-builder --win --x64 --publish always",

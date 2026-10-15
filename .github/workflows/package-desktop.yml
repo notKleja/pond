@@ -24,13 +24,19 @@ jobs:
               apps/desktop/dist/Pond-*-x64.exe
               apps/desktop/dist/Pond-*-x64.exe.blockmap
               apps/desktop/dist/latest.yml
-          - name: macos-unsigned
+          - name: macos-arm64-unsigned
             os: macos-latest
-            command: pnpm dist:mac
+            command: pnpm dist:mac:arm64
             artifacts: |
               apps/desktop/dist/Pond-*-arm64.dmg
-              apps/desktop/dist/Pond-*-x64.dmg
               apps/desktop/dist/Pond-*-arm64.zip
+              apps/desktop/dist/*.blockmap
+              apps/desktop/dist/latest-mac.yml
+          - name: macos-x64-unsigned
+            os: macos-15-intel
+            command: pnpm dist:mac:x64
+            artifacts: |
+              apps/desktop/dist/Pond-*-x64.dmg
               apps/desktop/dist/Pond-*-x64.zip
               apps/desktop/dist/*.blockmap
               apps/desktop/dist/latest-mac.yml
