@@ -19,6 +19,8 @@ import {
   createReplicationRunCoordinator,
   PondReplicationAdapter,
   type PondReplicationRuntime,
+  swapReplicationConfig,
+  updateReplicationConfigEntry,
 } from "./library-replication";
 import { runLibraryReplicationCycle } from "./library-replication-protocol";
 import { createMutationQueue } from "./mutation-queue";
@@ -31,6 +33,71 @@ afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
+});
+
+it("retains the state identity and exchange location when replication is disabled", () => {
+  const disabled = updateReplicationConfigEntry({
+    config: {
+      schema: 1,
+      libraries: {
+        library: {
+          enabled: true,
+          exchangeDirectory: "C:\\Exchange",
+          deviceId: "device-id",
+        },
+      },
+    },
+    libraryId: "library",
+    deviceId: "device-id",
+    exchangeDirectory: null,
+  });
+  expect(disabled.libraries.library).toEqual({
+    enabled: false,
+    exchangeDirectory: "C:\\Exchange",
+    deviceId: "device-id",
+  });
+});
+
+it("restarts the prior replication service when a config commit fails", async () => {
+  const order: string[] = [];
+  let running = true;
+  await expect(
+    swapReplicationConfig({
+      async stop() {
+        order.push("stop");
+        running = false;
+      },
+      async commit() {
+        order.push("commit");
+        throw new Error("injected config rename failure");
+      },
+      async start() {
+        order.push("start");
+        running = true;
+      },
+    }),
+  ).rejects.toThrow("injected config rename failure");
+  expect(order).toEqual(["stop", "commit", "start"]);
+  expect(running).toBe(true);
+});
+
+it("restarts replication when draining the active cycle fails", async () => {
+  const order: string[] = [];
+  await expect(
+    swapReplicationConfig({
+      async stop() {
+        order.push("stop");
+        throw new Error("injected active cycle failure");
+      },
+      async commit() {
+        order.push("commit");
+      },
+      async start() {
+        order.push("start");
+      },
+    }),
+  ).rejects.toThrow("injected active cycle failure");
+  expect(order).toEqual(["stop", "start"]);
 });
 
 async function replica(root: string, name: string) {

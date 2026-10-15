@@ -108,6 +108,29 @@ interface SavedViewInput {
   layout?: string | null;
 }
 
+type LibraryReplicationModel =
+  | "save"
+  | "tag"
+  | "tag_group"
+  | "tag_group_member"
+  | "saved_view"
+  | "folder"
+  | "save_folder";
+interface LibraryReplicationVersion {
+  counter: number;
+  deviceId: string;
+  eventId: string;
+}
+interface LibraryReplicationConflict {
+  id: string;
+  model: LibraryReplicationModel;
+  modelId: string;
+  direction: "local_won" | "remote_won";
+  loser: LibraryReplicationVersion;
+  winner: LibraryReplicationVersion;
+  detectedAt: string;
+}
+
 export type { OkResult } from "./query-contracts-shared";
 
 export interface QueryInputs
@@ -226,6 +249,8 @@ export interface QueryInputs
     accent?: string | null;
   };
   "library.replication.set": { exchangeDirectory: string | null };
+  "library.replication.conflicts": { limit?: number };
+  "library.replication.revealEvent": LibraryReplicationVersion;
   "library.identity.pickIcon": EmptyInput;
   "library.rename": {
     name: string;
@@ -361,6 +386,10 @@ export interface QueryResults
     accent?: string | null;
   }>;
   "library.replication.set": OkResult;
+  "library.replication.conflicts": {
+    conflicts: LibraryReplicationConflict[];
+  };
+  "library.replication.revealEvent": OkResult;
   "library.replication.pickFolder": CancellableResult<{ path: string }>;
   "library.replication.status": {
     enabled: boolean;

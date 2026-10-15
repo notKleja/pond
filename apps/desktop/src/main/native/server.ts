@@ -128,7 +128,7 @@ function restoreSocket(server: Server): void {
 export async function startNativeServer(
   opts: NativeServerOpts = {},
 ): Promise<Server> {
-  const path = opts.path ?? nativeSocketPath();
+  const path = opts.path ?? (await nativeSocketPath());
   const dispatch =
     opts.dispatch ?? ((raw) => dispatchNative(raw, liveNativePorts()));
   const namedPipe = isNamedPipe(path);

@@ -1,12 +1,14 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { EXTENSION_ID, NATIVE_HOST_NAME } from "@pond/schema/native";
 import { app } from "electron";
 import log from "electron-log/main.js";
 
 const HOST_FILENAME = `${NATIVE_HOST_NAME}.json`;
+const execFileAsync = promisify(execFile);
 
 const MAC_BROWSER_NMH_DIRS = [
   "Library/Application Support/Google/Chrome/NativeMessagingHosts",
@@ -71,7 +73,7 @@ export function windowsRegistryArgs(
   return ["ADD", key, "/ve", "/t", "REG_SZ", "/d", manifestPath, "/f"];
 }
 
-export function writeNativeHostManifests(): void {
+export async function writeNativeHostManifests(): Promise<void> {
   if (process.platform !== "darwin" && process.platform !== "win32") return;
 
   const hostPath = nativeHostBinaryPath();
@@ -81,7 +83,7 @@ export function writeNativeHostManifests(): void {
   }
 
   if (process.platform === "win32") {
-    writeWindowsNativeHostManifest(hostPath);
+    await writeWindowsNativeHostManifest(hostPath);
     return;
   }
 
@@ -100,7 +102,7 @@ export function writeNativeHostManifests(): void {
   }
 }
 
-function writeWindowsNativeHostManifest(hostPath: string): void {
+async function writeWindowsNativeHostManifest(hostPath: string): Promise<void> {
   const dir = join(app.getPath("userData"), "native-messaging");
   const manifestPath = join(dir, HOST_FILENAME);
   try {
@@ -111,13 +113,17 @@ function writeWindowsNativeHostManifest(hostPath: string): void {
     return;
   }
 
-  for (const key of WINDOWS_NATIVE_MESSAGING_REGISTRY_KEYS) {
-    try {
-      execFileSync("reg.exe", windowsRegistryArgs(key, manifestPath), {
-        windowsHide: true,
-      });
-    } catch (err) {
-      log.warn("[pond native] failed to register host manifest", key, err);
-    }
-  }
+  await Promise.all(
+    WINDOWS_NATIVE_MESSAGING_REGISTRY_KEYS.map(async (key) => {
+      try {
+        await execFileAsync("reg.exe", windowsRegistryArgs(key, manifestPath), {
+          windowsHide: true,
+          timeout: 5_000,
+          killSignal: "SIGKILL",
+        });
+      } catch (err) {
+        log.warn("[pond native] failed to register host manifest", key, err);
+      }
+    }),
+  );
 }

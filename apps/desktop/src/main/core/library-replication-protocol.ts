@@ -31,6 +31,7 @@ const ATTACHMENT_LIMIT = 10_000;
 const CONFLICT_LIMIT = 1_000;
 const ENTRY_LIMIT = 20_000;
 const DEPTH_LIMIT = 16;
+const RENAME_RETRY_DELAYS_MS = [25, 50, 100, 200, 400] as const;
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 const LibraryIdSchema = z
@@ -64,6 +65,11 @@ const VersionSchema = z.object({
   eventId: z.string().regex(SAFE_ID),
 });
 export type ReplicationVersion = z.infer<typeof VersionSchema>;
+const DeviceClockSchema = z.record(
+  z.string().regex(SAFE_ID),
+  z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+);
+type DeviceClock = z.infer<typeof DeviceClockSchema>;
 
 const AttachmentSchema = z.object({
   path: z.string().min(1),
@@ -71,20 +77,47 @@ const AttachmentSchema = z.object({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
-const EventSchema = z.object({
-  schema: z.literal(1),
-  libraryId: LibraryIdSchema,
-  version: VersionSchema,
-  createdAt: z.string().datetime(),
-  model: ReplicatedModelSchema,
-  modelId: ModelIdSchema,
-  tombstone: z.boolean(),
-  snapshot: z.record(z.string(), z.json()).nullable(),
-  attachments: z.array(AttachmentSchema).max(ATTACHMENT_LIMIT),
-});
+const EventSchema = z
+  .object({
+    schema: z.literal(1),
+    libraryId: LibraryIdSchema,
+    version: VersionSchema,
+    clock: DeviceClockSchema.optional().default({}),
+    createdAt: z.string().datetime(),
+    model: ReplicatedModelSchema,
+    modelId: ModelIdSchema,
+    tombstone: z.boolean(),
+    snapshot: z.record(z.string(), z.json()).nullable(),
+    attachments: z.array(AttachmentSchema).max(ATTACHMENT_LIMIT),
+  })
+  .superRefine((event, context) => {
+    if (event.version.counter < 1)
+      context.addIssue({
+        code: "custom",
+        path: ["version", "counter"],
+        message: "Replication event counters start at one.",
+      });
+    for (const [deviceId, counter] of Object.entries(event.clock))
+      if (counter >= event.version.counter)
+        context.addIssue({
+          code: "custom",
+          path: ["clock", deviceId],
+          message: "Causal counters must precede the event counter.",
+        });
+  });
 export type ReplicationEvent = z.infer<typeof EventSchema>;
 
+const ConflictDirectionSchema = z.enum(["local_won", "remote_won"]);
 const ConflictSchema = z.object({
+  id: z.string().min(1),
+  model: ReplicatedModelSchema,
+  modelId: ModelIdSchema,
+  direction: ConflictDirectionSchema,
+  loser: VersionSchema,
+  winner: VersionSchema,
+  detectedAt: z.string().datetime(),
+});
+const LegacyConflictSchema = z.object({
   entity: z.string(),
   loser: VersionSchema,
   winner: VersionSchema,
@@ -96,9 +129,16 @@ const StateSchema = z.object({
   localCursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   lamport: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   versions: z.record(z.string(), VersionSchema),
-  conflicts: z.array(ConflictSchema).max(CONFLICT_LIMIT),
+  clocks: z.record(z.string(), DeviceClockSchema).optional().default({}),
+  conflicts: z
+    .array(z.union([ConflictSchema, LegacyConflictSchema]))
+    .max(CONFLICT_LIMIT),
 });
-type ReplicationState = z.infer<typeof StateSchema>;
+type StoredReplicationState = z.infer<typeof StateSchema>;
+export type ReplicationConflict = z.infer<typeof ConflictSchema>;
+type ReplicationState = Omit<StoredReplicationState, "conflicts"> & {
+  conflicts: ReplicationConflict[];
+};
 
 export interface ReplicationAttachment {
   source: string;
@@ -124,14 +164,21 @@ export interface LibraryReplicationAdapter {
   apply(incoming: AppliedReplicationEvent): Promise<void>;
 }
 
+export interface ReplicationFileOperations {
+  rename?: (source: string, destination: string) => Promise<void>;
+  delay?: (milliseconds: number) => Promise<void>;
+}
+
 export interface ReplicationCycleInput {
   libraryId: string;
   deviceId: string;
   exchangeDirectory: string;
+  /** Device-local cursor and conflict state. This file is never part of the shared exchange. */
   stateFile: string;
   adapter: LibraryReplicationAdapter;
   now?: () => Date;
   afterPublish?: (event: ReplicationEvent) => void | Promise<void>;
+  fileOperations?: ReplicationFileOperations;
 }
 
 export interface ReplicationCycleResult {
@@ -145,6 +192,103 @@ export interface ReplicationCycleResult {
 
 function entityKey(model: string, modelId: string): string {
   return `${model}\0${modelId}`;
+}
+
+function conflictId(input: {
+  model: string;
+  modelId: string;
+  loser: ReplicationVersion;
+  winner: ReplicationVersion;
+}): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        input.model,
+        input.modelId,
+        input.loser.deviceId,
+        input.loser.eventId,
+        input.winner.deviceId,
+        input.winner.eventId,
+      ]),
+    )
+    .digest("hex");
+}
+
+function normalizeConflict(
+  conflict: z.infer<typeof ConflictSchema | typeof LegacyConflictSchema>,
+  localDeviceId: string,
+): ReplicationConflict {
+  if ("id" in conflict) return conflict;
+  const separator = conflict.entity.indexOf("\0");
+  const model = ReplicatedModelSchema.parse(
+    separator < 0 ? conflict.entity : conflict.entity.slice(0, separator),
+  );
+  const modelId = ModelIdSchema.parse(
+    separator < 0 ? conflict.entity : conflict.entity.slice(separator + 1),
+  );
+  return {
+    id: conflictId({ model, modelId, ...conflict }),
+    model,
+    modelId,
+    direction:
+      conflict.winner.deviceId === localDeviceId ? "local_won" : "remote_won",
+    loser: conflict.loser,
+    winner: conflict.winner,
+    detectedAt: conflict.detectedAt,
+  };
+}
+
+function recordConflict(
+  state: ReplicationState,
+  input: {
+    model: z.infer<typeof ReplicatedModelSchema>;
+    modelId: string;
+    loser: ReplicationVersion;
+    winner: ReplicationVersion;
+    detectedAt: string;
+  },
+): boolean {
+  const id = conflictId(input);
+  if (state.conflicts.some((conflict) => conflict.id === id)) return false;
+  state.conflicts.push({
+    id,
+    model: input.model,
+    modelId: input.modelId,
+    direction:
+      input.winner.deviceId === state.deviceId ? "local_won" : "remote_won",
+    loser: input.loser,
+    winner: input.winner,
+    detectedAt: input.detectedAt,
+  });
+  if (state.conflicts.length > CONFLICT_LIMIT)
+    state.conflicts.splice(0, state.conflicts.length - CONFLICT_LIMIT);
+  return true;
+}
+
+function clockCounter(
+  clock: DeviceClock,
+  deviceId: string,
+): number | undefined {
+  return Object.hasOwn(clock, deviceId) ? clock[deviceId] : undefined;
+}
+
+function mergeClocks(...clocks: readonly DeviceClock[]): DeviceClock {
+  const merged: DeviceClock = {};
+  for (const clock of clocks)
+    for (const [deviceId, counter] of Object.entries(clock))
+      merged[deviceId] = Math.max(clockCounter(merged, deviceId) ?? 0, counter);
+  return merged;
+}
+
+function withVersion(
+  clock: DeviceClock,
+  version: ReplicationVersion,
+): DeviceClock {
+  return mergeClocks(clock, { [version.deviceId]: version.counter });
+}
+
+function covers(clock: DeviceClock, version: ReplicationVersion): boolean {
+  return (clockCounter(clock, version.deviceId) ?? 0) >= version.counter;
 }
 
 export function compareReplicationVersions(
@@ -171,6 +315,7 @@ function initialState(deviceId: string): ReplicationState {
     localCursor: 0,
     lamport: 0,
     versions: {},
+    clocks: {},
     conflicts: [],
   };
 }
@@ -186,7 +331,27 @@ async function readState(
     },
   );
   if (!raw) return initialState(deviceId);
-  const state = StateSchema.parse(JSON.parse(raw));
+  const stored = StateSchema.parse(JSON.parse(raw));
+  const normalizedConflicts = stored.conflicts.map((conflict) =>
+    normalizeConflict(conflict, stored.deviceId),
+  );
+  const state: ReplicationState = {
+    ...stored,
+    clocks: { ...stored.clocks },
+    conflicts: [
+      ...new Map(
+        normalizedConflicts.map((conflict) => [conflict.id, conflict]),
+      ).values(),
+    ],
+  };
+  for (const [key, version] of Object.entries(state.versions)) {
+    const clock = state.clocks[key] ?? {};
+    clock[version.deviceId] = Math.max(
+      clockCounter(clock, version.deviceId) ?? 0,
+      version.counter,
+    );
+    state.clocks[key] = clock;
+  }
   if (state.deviceId !== deviceId)
     throw new Error("This replication state belongs to a different device.");
   return state;
@@ -195,14 +360,56 @@ async function readState(
 async function writeState(
   file: string,
   state: ReplicationState,
+  fileOperations?: ReplicationFileOperations,
 ): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   const temporary = `${file}.tmp-${randomUUID()}`;
-  await writeFile(temporary, JSON.stringify(state, null, 2), {
-    flag: "wx",
-    flush: true,
-  });
-  await rename(temporary, file);
+  try {
+    await writeFile(temporary, JSON.stringify(state, null, 2), {
+      flag: "wx",
+      flush: true,
+    });
+    await renameReplicationPath(temporary, file, fileOperations);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+function isTransientRenameError(error: Error): boolean {
+  if (!("code" in error)) return false;
+  return ["EBUSY", "EPERM", "EACCES"].includes(String(error.code));
+}
+
+async function defaultDelay(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolveDelay) =>
+    setTimeout(resolveDelay, milliseconds),
+  );
+}
+
+/** Retries only Windows/cloud lock failures; collision handling remains with the caller. */
+export async function renameReplicationPath(
+  source: string,
+  destination: string,
+  fileOperations: ReplicationFileOperations = {},
+): Promise<void> {
+  const renamePath = fileOperations.rename ?? rename;
+  const delay = fileOperations.delay ?? defaultDelay;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await renamePath(source, destination);
+      return;
+    } catch (error) {
+      const delayMs = RENAME_RETRY_DELAYS_MS[attempt];
+      if (
+        !(error instanceof Error) ||
+        !isTransientRenameError(error) ||
+        delayMs === undefined
+      )
+        throw error;
+      await delay(delayMs);
+    }
+  }
 }
 
 function portablePath(path: string): string {
@@ -253,6 +460,34 @@ async function hashFile(
   return { size, sha256: hash.digest("hex") };
 }
 
+async function reusePublishedEvent(
+  temporary: string,
+  destination: string,
+  libraryId: string,
+  event: ReplicationEvent,
+): Promise<ReplicationEvent | null> {
+  let destinationMetadata: Awaited<ReturnType<typeof stat>>;
+  try {
+    destinationMetadata = await stat(destination);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return null;
+    throw error;
+  }
+  if (!destinationMetadata.isDirectory()) return null;
+  const existing = await readEvent(destination, libraryId);
+  const comparable = (value: ReplicationEvent) => ({
+    ...value,
+    createdAt: "",
+  });
+  if (
+    JSON.stringify(comparable(existing)) !== JSON.stringify(comparable(event))
+  )
+    throw new Error("Replication event destination has conflicting content.");
+  await rm(temporary, { recursive: true, force: true });
+  return existing;
+}
+
 async function publish(
   input: ReplicationCycleInput,
   state: ReplicationState,
@@ -264,6 +499,7 @@ async function publish(
     throw new Error("Replication counter is exhausted.");
   const eventId = `${String(state.lamport).padStart(16, "0")}-${change.cursor}`;
   const version = { counter: state.lamport, deviceId: input.deviceId, eventId };
+  const clock = { ...state.clocks[entityKey(change.model, change.modelId)] };
   const parent = join(
     input.exchangeDirectory,
     "pond-replication-v1",
@@ -305,6 +541,7 @@ async function publish(
       schema: 1,
       libraryId: input.libraryId,
       version,
+      clock,
       createdAt: now.toISOString(),
       model: ReplicatedModelSchema.parse(change.model),
       modelId: change.modelId,
@@ -313,20 +550,26 @@ async function publish(
       attachments,
     };
     EventSchema.parse(event);
-    await writeFile(
-      join(temporary, "event.json"),
-      JSON.stringify(event, null, 2),
-      {
-        flag: "wx",
-        flush: true,
-      },
-    );
+    const manifest = JSON.stringify(event, null, 2);
+    if (Buffer.byteLength(manifest) > MANIFEST_LIMIT)
+      throw new Error("Replication manifest is too large.");
+    await writeFile(join(temporary, "event.json"), manifest, {
+      flag: "wx",
+      flush: true,
+    });
     await writeFile(join(temporary, "complete"), "1\n", {
       flag: "wx",
       flush: true,
     });
+    const recovered = await reusePublishedEvent(
+      temporary,
+      destination,
+      input.libraryId,
+      event,
+    );
+    if (recovered) return recovered;
     try {
-      await rename(temporary, destination);
+      await renameReplicationPath(temporary, destination, input.fileOperations);
       return event;
     } catch (error) {
       if (
@@ -335,21 +578,13 @@ async function publish(
         !["EEXIST", "ENOTEMPTY", "EPERM"].includes(String(error.code))
       )
         throw error;
-      if (!(await stat(destination).catch(() => null))?.isDirectory())
-        throw error;
-      const existing = await readEvent(destination, input.libraryId);
-      const comparable = (value: ReplicationEvent) => ({
-        ...value,
-        createdAt: "",
-      });
-      if (
-        JSON.stringify(comparable(existing)) !==
-        JSON.stringify(comparable(event))
-      )
-        throw new Error(
-          "Replication event destination has conflicting content.",
-        );
-      await rm(temporary, { recursive: true, force: true });
+      const existing = await reusePublishedEvent(
+        temporary,
+        destination,
+        input.libraryId,
+        event,
+      );
+      if (!existing) throw error;
       return existing;
     }
   } catch (error) {
@@ -515,9 +750,11 @@ export async function runLibraryReplicationCycle(
     const event = await publish(input, state, change, now());
     await input.afterPublish?.(event);
     state.localCursor = change.cursor;
-    state.versions[entityKey(event.model, event.modelId)] = event.version;
+    const key = entityKey(event.model, event.modelId);
+    state.versions[key] = event.version;
+    state.clocks[key] = withVersion(event.clock, event.version);
     published += 1;
-    await writeState(input.stateFile, state);
+    await writeState(input.stateFile, state, input.fileOperations);
   }
 
   const discovered = await eventDirectories(input);
@@ -543,11 +780,36 @@ export async function runLibraryReplicationCycle(
   for (const incoming of candidates) {
     const key = entityKey(incoming.event.model, incoming.event.modelId);
     const current = state.versions[key];
+    const localClock = state.clocks[key] ?? {};
+    if (covers(localClock, incoming.event.version)) {
+      ignored += 1;
+      continue;
+    }
+    const incomingDescendsCurrent = current
+      ? covers(incoming.event.clock, current)
+      : false;
     if (
       current &&
       compareReplicationVersions(incoming.event.version, current) <= 0
     ) {
       ignored += 1;
+      state.clocks[key] = withVersion(
+        mergeClocks(localClock, incoming.event.clock),
+        incoming.event.version,
+      );
+      if (
+        current.deviceId !== incoming.event.version.deviceId &&
+        !incomingDescendsCurrent &&
+        recordConflict(state, {
+          model: incoming.event.model,
+          modelId: incoming.event.modelId,
+          loser: incoming.event.version,
+          winner: current,
+          detectedAt: now().toISOString(),
+        })
+      )
+        conflicts += 1;
+      await writeState(input.stateFile, state, input.fileOperations);
       continue;
     }
     try {
@@ -557,20 +819,29 @@ export async function runLibraryReplicationCycle(
       continue;
     }
     state.lamport = Math.max(state.lamport, incoming.event.version.counter);
-    if (current && current.deviceId !== incoming.event.version.deviceId) {
-      state.conflicts.push({
-        entity: key,
-        loser: current,
-        winner: incoming.event.version,
-        detectedAt: now().toISOString(),
-      });
-      if (state.conflicts.length > CONFLICT_LIMIT)
-        state.conflicts.splice(0, state.conflicts.length - CONFLICT_LIMIT);
-      conflicts += 1;
+    state.clocks[key] = withVersion(
+      mergeClocks(localClock, incoming.event.clock),
+      incoming.event.version,
+    );
+    if (
+      current &&
+      current.deviceId !== incoming.event.version.deviceId &&
+      !incomingDescendsCurrent
+    ) {
+      if (
+        recordConflict(state, {
+          model: incoming.event.model,
+          modelId: incoming.event.modelId,
+          loser: current,
+          winner: incoming.event.version,
+          detectedAt: now().toISOString(),
+        })
+      )
+        conflicts += 1;
     }
     state.versions[key] = incoming.event.version;
     applied += 1;
-    await writeState(input.stateFile, state);
+    await writeState(input.stateFile, state, input.fileOperations);
   }
   return {
     published,
@@ -584,9 +855,60 @@ export async function runLibraryReplicationCycle(
 
 export async function readReplicationConflicts(
   stateFile: string,
-): Promise<readonly z.infer<typeof ConflictSchema>[]> {
-  const value = JSON.parse(await readFile(stateFile, "utf8"));
-  return StateSchema.parse(value).conflicts;
+  options: { deviceId: string; limit?: number },
+): Promise<readonly ReplicationConflict[]> {
+  const state = await readState(stateFile, options.deviceId);
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
+  return state.conflicts.slice(-limit).reverse();
+}
+
+export async function replicationConflictContainsVersion(
+  stateFile: string,
+  input: { deviceId: string; version: ReplicationVersion },
+): Promise<boolean> {
+  const version = VersionSchema.parse(input.version);
+  const state = await readState(stateFile, input.deviceId);
+  return state.conflicts.some((conflict) =>
+    [conflict.loser, conflict.winner].some(
+      (candidate) =>
+        candidate.counter === version.counter &&
+        candidate.deviceId === version.deviceId &&
+        candidate.eventId === version.eventId,
+    ),
+  );
+}
+
+function replicationEventDirectory(input: {
+  exchangeDirectory: string;
+  libraryId: string;
+  version: ReplicationVersion;
+}): string {
+  LibraryIdSchema.parse(input.libraryId);
+  const version = VersionSchema.parse(input.version);
+  return join(
+    resolve(input.exchangeDirectory),
+    "pond-replication-v1",
+    input.libraryId,
+    "events",
+    version.deviceId,
+    version.eventId,
+  );
+}
+
+export async function verifyReplicationEventDirectory(input: {
+  exchangeDirectory: string;
+  libraryId: string;
+  version: ReplicationVersion;
+}): Promise<string> {
+  const directory = replicationEventDirectory(input);
+  const event = await readEvent(directory, input.libraryId);
+  if (
+    event.version.counter !== input.version.counter ||
+    event.version.deviceId !== input.version.deviceId ||
+    event.version.eventId !== input.version.eventId
+  )
+    throw new Error("Replication event identity does not match its history.");
+  return directory;
 }
 
 void ((): JsonValue | null => null)();

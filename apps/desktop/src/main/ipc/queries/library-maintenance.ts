@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { app, dialog, session, shell } from "electron";
 import log from "electron-log/main.js";
@@ -11,6 +11,8 @@ import {
 } from "../../core/library-identity";
 import { purgeDirectory, verifyLibraryIntegrity } from "../../core/library-ops";
 import {
+  getLibraryReplicationConflicts,
+  getLibraryReplicationEventPath,
   getLibraryReplicationStatus,
   setLibraryReplicationDirectory,
 } from "../../core/library-replication";
@@ -31,6 +33,40 @@ export const libraryMaintenanceQueries = {
   async "library.replication.status"() {
     return getLibraryReplicationStatus();
   },
+
+  "library.replication.conflicts": query(
+    z.object({ limit: z.number().int().min(1).max(100).optional() }),
+    async ({ limit }) => ({
+      conflicts: [...(await getLibraryReplicationConflicts(limit))],
+    }),
+  ),
+
+  "library.replication.revealEvent": query(
+    z.object({
+      counter: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      deviceId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/),
+      eventId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/),
+    }),
+    async (version) => {
+      const directory = await getLibraryReplicationEventPath(version).catch(
+        () => null,
+      );
+      if (!directory)
+        return {
+          ok: false as const,
+          error:
+            "The immutable event is unavailable or its exchange folder is not configured.",
+        };
+      const manifest = join(directory, "event.json");
+      if (!(await stat(manifest).catch(() => null))?.isFile())
+        return {
+          ok: false as const,
+          error: "That immutable replication event is not available locally.",
+        };
+      shell.showItemInFolder(manifest);
+      return { ok: true as const };
+    },
+  ),
 
   async "library.replication.pickFolder"(): Promise<
     QueryResult<"library.replication.pickFolder">

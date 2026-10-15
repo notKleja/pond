@@ -300,7 +300,7 @@ async function postLaunchInit(): Promise<void> {
   try {
     if (!process.env.POND_SANDBOX) {
       nativeServer = await startNativeServer();
-      writeNativeHostManifests();
+      await writeNativeHostManifests();
     }
   } catch (err) {
     log.error("[pond] native host failed to start", err);

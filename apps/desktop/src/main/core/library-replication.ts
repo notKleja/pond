@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import {
   type Folder,
@@ -42,8 +42,14 @@ import {
   type AppliedReplicationEvent,
   type LibraryReplicationAdapter,
   type LocalReplicationChange,
+  type ReplicationConflict,
   type ReplicationCycleResult,
+  type ReplicationVersion,
+  readReplicationConflicts,
+  renameReplicationPath,
+  replicationConflictContainsVersion,
   runLibraryReplicationCycle,
+  verifyReplicationEventDirectory,
 } from "./library-replication-protocol";
 
 const ConfigSchema = z.object({
@@ -61,6 +67,44 @@ const ConfigSchema = z.object({
     }),
   ),
 });
+type ReplicationConfig = z.infer<typeof ConfigSchema>;
+
+export function updateReplicationConfigEntry(input: {
+  config: ReplicationConfig;
+  libraryId: string;
+  deviceId: string;
+  exchangeDirectory: string | null;
+}): ReplicationConfig {
+  const libraries = { ...input.config.libraries };
+  const previous = libraries[input.libraryId];
+  if (input.exchangeDirectory)
+    libraries[input.libraryId] = {
+      enabled: true,
+      exchangeDirectory: input.exchangeDirectory,
+      deviceId: input.deviceId,
+      intervalMs: previous?.intervalMs,
+    };
+  else if (previous)
+    libraries[input.libraryId] = {
+      ...previous,
+      enabled: false,
+      deviceId: input.deviceId,
+    };
+  return { ...input.config, libraries };
+}
+
+export async function swapReplicationConfig(operations: {
+  stop(): Promise<void>;
+  commit(): Promise<void>;
+  start(): Promise<void>;
+}): Promise<void> {
+  try {
+    await operations.stop();
+    await operations.commit();
+  } finally {
+    await operations.start();
+  }
+}
 
 const DeviceSchema = z.object({
   schema: z.literal(1),
@@ -315,7 +359,7 @@ async function localDeviceId(): Promise<string> {
   return DeviceSchema.parse(JSON.parse(await readFile(file, "utf8"))).deviceId;
 }
 
-async function configured() {
+async function replicationEntry() {
   const file = join(appDataRoot(), "library-replication.json");
   const raw = await readFile(file, "utf8").catch(
     (error: NodeJS.ErrnoException) => {
@@ -326,7 +370,7 @@ async function configured() {
   if (!raw) return null;
   const config = ConfigSchema.parse(JSON.parse(raw));
   const entry = config.libraries[libraryId()];
-  if (!entry?.enabled) return null;
+  if (!entry) return null;
   return {
     ...entry,
     deviceId: entry.deviceId ?? (await localDeviceId()),
@@ -334,14 +378,23 @@ async function configured() {
   };
 }
 
+async function configured() {
+  const entry = await replicationEntry();
+  return entry?.enabled ? entry : null;
+}
+
+function replicationStateFile(deviceId: string): string {
+  return join(appDataRoot(), "replication", `${libraryId()}-${deviceId}.json`);
+}
+
 let lastResult: ReplicationCycleResult | null = null;
 let lastError: string | null = null;
 let lastRunAt: string | null = null;
 
 export async function getLibraryReplicationStatus() {
-  const config = await configured();
+  const config = await replicationEntry();
   return {
-    enabled: Boolean(config),
+    enabled: config?.enabled === true,
     exchangeDirectory: config?.exchangeDirectory ?? null,
     deviceId: config?.deviceId ?? null,
     lastRunAt,
@@ -350,14 +403,48 @@ export async function getLibraryReplicationStatus() {
   };
 }
 
+export async function getLibraryReplicationConflicts(
+  limit = 50,
+): Promise<readonly ReplicationConflict[]> {
+  const config = await replicationEntry();
+  const deviceId = config?.deviceId ?? (await localDeviceId());
+  return readReplicationConflicts(replicationStateFile(deviceId), {
+    deviceId,
+    limit,
+  });
+}
+
+export async function getLibraryReplicationEventPath(
+  version: ReplicationVersion,
+): Promise<string | null> {
+  const config = await replicationEntry();
+  if (!config?.exchangeDirectory) return null;
+  if (
+    !(await replicationConflictContainsVersion(
+      replicationStateFile(config.deviceId),
+      { deviceId: config.deviceId, version },
+    ))
+  )
+    return null;
+  return verifyReplicationEventDirectory({
+    exchangeDirectory: config.exchangeDirectory,
+    libraryId: libraryId(),
+    version,
+  });
+}
+
 export async function setLibraryReplicationDirectory(
   exchangeDirectory: string | null,
 ): Promise<void> {
   const file = join(appDataRoot(), "library-replication.json");
   const raw = await readFile(file, "utf8").catch(() => null);
-  const current = raw
+  let current = raw
     ? ConfigSchema.parse(JSON.parse(raw))
     : { schema: 1 as const, libraries: {} };
+  const id = libraryId();
+  const previous = current.libraries[id];
+  const deviceId = previous?.deviceId ?? (await localDeviceId());
+  let resolvedExchange: string | null = null;
   if (exchangeDirectory) {
     const exchange = resolve(exchangeDirectory);
     const library = resolve(libraryRoot());
@@ -368,24 +455,32 @@ export async function setLibraryReplicationDirectory(
     )
       throw new Error("Choose an exchange folder outside the local Library.");
     await mkdir(exchange, { recursive: true });
-    current.libraries[libraryId()] = {
-      enabled: true,
-      exchangeDirectory: exchange,
-    };
-  } else {
-    delete current.libraries[libraryId()];
+    resolvedExchange = exchange;
   }
+  current = updateReplicationConfigEntry({
+    config: current,
+    libraryId: id,
+    deviceId,
+    exchangeDirectory: resolvedExchange,
+  });
   await mkdir(dirname(file), { recursive: true });
   const temporary = `${file}.tmp-${randomUUID()}`;
-  await writeFile(temporary, JSON.stringify(current, null, 2), {
-    flag: "wx",
-    flush: true,
+  await swapReplicationConfig({
+    stop: stopLibraryReplication,
+    start: startLibraryReplication,
+    async commit() {
+      try {
+        await writeFile(temporary, JSON.stringify(current, null, 2), {
+          flag: "wx",
+          flush: true,
+        });
+        await renameReplicationPath(temporary, file);
+      } catch (error) {
+        await rm(temporary, { force: true });
+        throw error;
+      }
+    },
   });
-  await import("node:fs/promises").then(({ rename }) =>
-    rename(temporary, file),
-  );
-  await stopLibraryReplication();
-  await startLibraryReplication();
 }
 
 type PondDb = Awaited<ReturnType<typeof getDb>>;
@@ -917,6 +1012,8 @@ async function runConfiguredLibraryReplication(): Promise<void> {
         libraryId: activeLibraryId,
         deviceId: config.deviceId,
         exchangeDirectory: root,
+        // Cursor/conflict state stays in this device's userData; only immutable
+        // event bundles below exchangeDirectory are synchronized.
         stateFile: join(
           appDataRoot(),
           "replication",

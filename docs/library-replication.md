@@ -34,7 +34,10 @@ accepted only after its completion marker, manifest, sizes, paths, and SHA-256
 checksums validate. Incomplete uploads are ignored until a later pass. Damaged,
 unexpected, oversized, symbolic-link, path-traversal, Windows-reserved, and
 case-colliding content is rejected. The local state records deterministic
-conflict evidence so an overwritten edit can be diagnosed.
+conflict evidence so an overwritten edit can be diagnosed. That cursor,
+Lamport, version, and conflict state file stays in the device's Pond `userData`
+directory; it is not placed in the exchange folder or synchronized. Only the
+immutable completed event bundles are shared between devices.
 
 The immutable bundles remain in the exchange folder as recovery evidence; Pond
 does not garbage-collect them in this version. A single attachment is limited
@@ -45,9 +48,23 @@ Large first-time forks can therefore use substantial synchronized storage.
 
 Each device maintains a Lamport counter. Pond compares the counter first and a
 stable device/event identity second, so clock skew does not decide a conflict.
+Each event also carries a bounded causal clock. Sequential edits that have
+already observed one another are treated as descendants, while two edits that
+neither device had seen are concurrent. Older event bundles without causal
+context remain readable and are handled conservatively; when ancestry cannot
+be proved, Pond may report a conflict rather than hide a possible overwrite.
 The winning full entity snapshot or tombstone is applied through the normal
 recoverable transaction journal. Replaying or receiving events out of order is
 idempotent. A winning deletion stays deleted when an older update arrives.
+
+Concurrent conflicts remain visible under **Settings → Library** on both
+devices. One device records that its local event won; the other records that a
+remote event replaced its local event. The history is deduplicated, survives
+restarts, and stays readable after replication is turned off. Pond keeps one
+whole entity version and does not merge fields. **Show Overwritten Event**
+reveals the validated immutable loser bundle in the configured exchange folder
+so the user can inspect it, restore an earlier Library backup, or manually
+reapply the missing change.
 
 Replication currently covers Saves, their declared originals and derived
 files, trash/deletion state, folder memberships, folders, tags, tag groups,

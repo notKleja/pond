@@ -73,6 +73,8 @@ export const queryOperationAccess = {
   "library.replication.set": "hidden",
   "library.replication.status": "read",
   "library.replication.pickFolder": "hidden",
+  "library.replication.conflicts": "read",
+  "library.replication.revealEvent": "hidden",
   "library.exportDebugReport": "review",
   "library.mergeFrom": "review",
   "library.move": "hidden",

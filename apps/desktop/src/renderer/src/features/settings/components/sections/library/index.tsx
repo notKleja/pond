@@ -100,6 +100,12 @@ function LibraryReplicationSettings() {
     queryFn: () => window.pond.query("library.replication.status", {}),
     refetchInterval: 30_000,
   });
+  const { data: conflictData, error: conflictError } = useQuery({
+    queryKey: ["library-replication-conflicts"],
+    queryFn: () =>
+      window.pond.query("library.replication.conflicts", { limit: 20 }),
+    refetchInterval: 30_000,
+  });
   const configure = useMutation({
     mutationFn: async (exchangeDirectory: string | null) => {
       const result = await window.pond.query("library.replication.set", {
@@ -112,6 +118,23 @@ function LibraryReplicationSettings() {
       await client.invalidateQueries({
         queryKey: ["library-replication-status"],
       });
+      await client.invalidateQueries({
+        queryKey: ["library-replication-conflicts"],
+      });
+    },
+  });
+  const revealEvent = useMutation({
+    mutationFn: async (version: {
+      counter: number;
+      deviceId: string;
+      eventId: string;
+    }) => {
+      const result = await window.pond.query(
+        "library.replication.revealEvent",
+        version,
+      );
+      if (!result.ok)
+        throw new Error(result.error ?? "Couldn't show that event.");
     },
   });
 
@@ -134,44 +157,101 @@ function LibraryReplicationSettings() {
       : null;
   const replicationError =
     configure.error?.message ??
+    conflictError?.message ??
     status?.lastError ??
     (status?.lastResult?.rejected
       ? `${status.lastResult.rejected} exchange bundle${status.lastResult.rejected === 1 ? " was" : "s were"} rejected. Let the file service finish, then check again.`
       : null);
 
+  const conflicts = conflictData?.conflicts ?? [];
   return (
-    <Settings.Item id="setting-library-replication">
-      <Settings.ItemDetails>
-        <Settings.ItemTitle>Mac + Windows Replication</Settings.ItemTitle>
-        <Settings.ItemDescription>
-          {detail}
-          {activity ? (
-            <span className={styles.replicationStatus}>{activity}</span>
+    <>
+      <Settings.Item id="setting-library-replication">
+        <Settings.ItemDetails>
+          <Settings.ItemTitle>Mac + Windows Replication</Settings.ItemTitle>
+          <Settings.ItemDescription>
+            {detail}
+            {activity ? (
+              <span className={styles.replicationStatus}>{activity}</span>
+            ) : null}
+            <StatusNote error={replicationError} />
+          </Settings.ItemDescription>
+        </Settings.ItemDetails>
+        <Settings.ItemControl>
+          {status?.enabled ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={configure.isPending}
+              onClick={() => configure.mutate(null)}
+            >
+              Turn Off
+            </Button>
           ) : null}
-          <StatusNote error={replicationError} />
-        </Settings.ItemDescription>
-      </Settings.ItemDetails>
-      <Settings.ItemControl>
-        {status?.enabled ? (
           <Button
             size="sm"
-            variant="ghost"
+            variant="secondary"
             disabled={configure.isPending}
-            onClick={() => configure.mutate(null)}
+            onClick={() => void choose()}
           >
-            Turn Off
+            {status?.enabled ? "Change Folder" : "Choose Exchange Folder"}
           </Button>
-        ) : null}
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={configure.isPending}
-          onClick={() => void choose()}
+        </Settings.ItemControl>
+      </Settings.Item>
+      {conflicts.map((conflict) => (
+        <Settings.Item
+          id={`setting-library-replication-conflict-${conflict.id}`}
+          key={conflict.id}
         >
-          {status?.enabled ? "Change Folder" : "Choose Exchange Folder"}
-        </Button>
-      </Settings.ItemControl>
-    </Settings.Item>
+          <Settings.ItemDetails>
+            <Settings.ItemTitle>
+              {replicationModelLabel(conflict.model)} conflict
+            </Settings.ItemTitle>
+            <Settings.ItemDescription>
+              {conflict.direction === "local_won"
+                ? "This device kept its whole version and ignored another device's concurrent version. "
+                : "Another device's whole version replaced this device's concurrent version. "}
+              Pond did not merge fields. Review the overwritten immutable event,
+              then restore from a backup or reapply the missing change if
+              needed.
+              <span className={styles.replicationStatus}>
+                {conflict.modelId} ·{" "}
+                {new Date(conflict.detectedAt).toLocaleString()}
+              </span>
+              <span className={styles.replicationStatus}>
+                Winner: {conflict.winner.deviceId}/{conflict.winner.eventId} ·{" "}
+                Overwritten: {conflict.loser.deviceId}/{conflict.loser.eventId}
+              </span>
+              <StatusNote error={revealEvent.error?.message} />
+            </Settings.ItemDescription>
+          </Settings.ItemDetails>
+          <Settings.ItemControl>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={revealEvent.isPending}
+              onClick={() => revealEvent.mutate(conflict.loser)}
+            >
+              Show Overwritten Event
+            </Button>
+          </Settings.ItemControl>
+        </Settings.Item>
+      ))}
+    </>
+  );
+}
+
+function replicationModelLabel(model: string): string {
+  return (
+    {
+      save: "Save",
+      tag: "Tag",
+      tag_group: "Tag group",
+      tag_group_member: "Tag-group membership",
+      saved_view: "Saved view",
+      folder: "Folder",
+      save_folder: "Folder membership",
+    }[model] ?? "Library item"
   );
 }
 
