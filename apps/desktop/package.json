@@ -40,7 +40,7 @@
     "db:push": "ELECTRON_RUN_AS_NODE=1 pnpm exec electron ./node_modules/drizzle-kit/bin.cjs push",
     "typecheck": "tsr generate && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "pnpm test:setup && vitest run",
-    "test:setup": "node --test ./scripts/postinstall.test.mjs ./scripts/verify-binaries.test.cjs",
+    "test:setup": "node --test ./scripts/postinstall.test.mjs ./scripts/packaging-config.test.cjs ./scripts/verify-binaries.test.cjs",
     "smoke:desktop": "electron ./scripts/smoke-desktop.cjs",
     "smoke:folder-tags": "electron ./scripts/smoke-folder-tags.cjs",
     "smoke:library-trust": "electron ./scripts/smoke-library-trust.cjs",
