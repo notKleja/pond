@@ -42,8 +42,10 @@ Pushing a tag matching `v*` triggers [`.github/workflows/release.yml`](.github/w
 1. Runs lint, typecheck, tests, build, and the desktop smoke test
 2. Creates a draft release for the tag, unless one exists, and uploads the extension zip
 3. Independently packages Windows x64 and signed, notarized macOS builds
-4. Stops the macOS job if any Apple signing secret is missing without blocking the parallel Windows job
-5. Publishes the draft only after both platform jobs succeed, which makes it visible to the updater
+4. Builds arm64 on Apple Silicon and x64 on an Intel runner, then combines both
+   ZIP checksums into one `latest-mac.yml` for architecture-aware updates
+5. Stops a macOS job if any Apple signing secret is missing without blocking the parallel Windows job
+6. Publishes the draft only after both platform jobs succeed, which makes it visible to the updater
 
 To write release notes before it goes live, edit the draft while the workflow runs.
 

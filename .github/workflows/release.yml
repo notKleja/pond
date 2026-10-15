@@ -120,10 +120,20 @@ jobs:
 
   macos:
     needs: prepare
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            os: macos-latest
+            command: pnpm dist:mac:arm64
+          - arch: x64
+            os: macos-15-intel
+            command: pnpm dist:mac:x64
+    runs-on: ${{ matrix.os }}
 
     permissions:
-      contents: write
+      contents: read
       id-token: write
 
     steps:
@@ -160,15 +170,57 @@ jobs:
             fi
           done
 
-      - name: Package macOS app and upload to release
+      - name: Package macOS app
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm dist:mac:publish
+        run: ${{ matrix.command }}
+
+      - name: Stage macOS release artifacts
+        run: |
+          mkdir "release-macos-${{ matrix.arch }}"
+          cp apps/desktop/dist/Pond-*-${{ matrix.arch }}.dmg "release-macos-${{ matrix.arch }}/"
+          cp apps/desktop/dist/Pond-*-${{ matrix.arch }}.zip "release-macos-${{ matrix.arch }}/"
+          cp apps/desktop/dist/Pond-*-${{ matrix.arch }}.*.blockmap "release-macos-${{ matrix.arch }}/"
+
+      - name: Upload macOS release artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-macos-${{ matrix.arch }}
+          path: release-macos-${{ matrix.arch }}/
+          if-no-files-found: error
+          retention-days: 1
+
+  macos-publish:
+    needs: [prepare, macos]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: release-macos-*
+          path: macos-artifacts
+          merge-multiple: true
+
+      - name: Write combined macOS updater metadata
+        run: node scripts/write-mac-update-metadata.mjs macos-artifacts "${GITHUB_REF_NAME#v}"
+
+      - name: Upload macOS artifacts to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" macos-artifacts/* --clobber
 
   windows:
     needs: prepare
@@ -207,7 +259,7 @@ jobs:
         run: pnpm dist:win:publish
 
   publish:
-    needs: [macos, windows]
+    needs: [macos-publish, windows]
     runs-on: ubuntu-latest
 
     permissions:
