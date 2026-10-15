@@ -36,11 +36,9 @@ files:
 # them from `process.resourcesPath` which lands inside `Contents/Resources`
 # on macOS / `resources/` on Windows+Linux.
 #
-# `node_modules/ffmpeg-static/ffmpeg` is the static ffmpeg yt-dlp uses
-# to mux adaptive streams (most TikTok / IG Reels / YT downloads need
-# it). `extraResources` flattens it into `bin/` so `binariesAvailable`
-# can spawn it as a separate process (asar paths aren't executable).
-# yt-dlp is not bundled: it's fetched at runtime into userData.
+# The platform-specific sections below flatten ffmpeg-static into `bin/` with
+# its native executable name so `binariesAvailable` can spawn it outside the
+# asar. yt-dlp is not bundled: it's fetched at runtime into userData.
 extraResources:
   - from: resources
     to: .
@@ -50,8 +48,6 @@ extraResources:
     to: app-icons
     filter:
       - "**/default.png"
-  - from: node_modules/ffmpeg-static/ffmpeg
-    to: bin/ffmpeg
   - from: ../extension/.output/chrome-mv3
     to: extension
 
@@ -71,7 +67,7 @@ npmRebuild: true
 
 publish:
   provider: github
-  owner: raphaelsalaja
+  owner: notKleja
   repo: pond
   releaseType: release
 
@@ -101,6 +97,9 @@ mac:
   # the hardened runtime after notarization.
   entitlements: packaging/entitlements.mac.plist
   entitlementsInherit: packaging/entitlements.mac.inherit.plist
+  extraResources:
+    - from: node_modules/ffmpeg-static/ffmpeg
+      to: bin/ffmpeg
   # Register `.pond` as a macOS package so Finder shows a library as a
   # single bundle instead of a folder full of items/, trash/, metadata.
   # LaunchServices only honors this in packaged builds, not `dev`.
@@ -139,14 +138,20 @@ dmg:
       type: link
       path: /Applications
 
-# Windows and Linux targets are disabled until those builds ship.
-# Coming soon:
-# win:
-#   target:
-#     - target: nsis
-#       arch:
-#         - x64
-#         - arm64
+# Windows arm64 stays disabled until the native dependency set is verified on
+# an arm64 runner. The x64 build produces the installer and latest.yml used by
+# electron-updater.
+win:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  extraResources:
+    - from: node_modules/ffmpeg-static/ffmpeg.exe
+      to: bin/ffmpeg.exe
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+# Linux remains disabled until that build ships.
 # linux:
 #   target:
 #     - target: AppImage

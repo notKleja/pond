@@ -19,6 +19,10 @@ import {
   summonShortcutTarget,
 } from "./core/global-shortcuts";
 import { syncLibraryRootMetadata } from "./core/library-ops";
+import {
+  startLibraryReplication,
+  stopLibraryReplication,
+} from "./core/library-replication";
 import { stopLibraryTransfers } from "./core/library-transfers";
 import { flushGovernor } from "./core/pipeline/rate-governor";
 import {
@@ -47,7 +51,11 @@ import {
   registerYtDlpUpdateCron,
 } from "./crons";
 import { getDb } from "./db";
-import { handleDeepLink } from "./deep-link";
+import {
+  deepLinkArg,
+  handleDeepLink,
+  shouldOpenInitialWindow,
+} from "./deep-link";
 import { registerIpc } from "./ipc";
 import { waitForLibraryLocationChanges } from "./ipc/queries/library-locations";
 import { ensureIngestToken } from "./keychain";
@@ -117,6 +125,7 @@ log.info("[pond] main starting", {
 });
 
 const wantsMcp = process.argv.includes("--mcp");
+const initialDeepLink = deepLinkArg(process.argv);
 
 let nativeServer: NetServer | null = null;
 let stopMediaWarmer: (() => void) | null = null;
@@ -159,7 +168,7 @@ app.on("open-url", (event, url) => {
 });
 
 app.on("second-instance", (_event, argv) => {
-  const url = argv.find((a) => a.startsWith("pond://"));
+  const url = deepLinkArg(argv);
   if (url) {
     const destination = handleDeepLink(url, getMainWindow());
     if (destination === "library") void openLibraryWindow();
@@ -183,6 +192,9 @@ app.whenReady().then(async () => {
   const paths = await openActiveLibrary();
   if (!paths) return;
   log.info("[pond] paths", paths);
+  const initialDestination = initialDeepLink
+    ? handleDeepLink(initialDeepLink, getMainWindow())
+    : undefined;
 
   configureSessionDefaults();
 
@@ -220,7 +232,7 @@ app.whenReady().then(async () => {
   );
   const launchedHidden =
     wantsLaunchHidden || loginItem.wasOpenedAtLogin === true;
-  if (!launchedHidden) {
+  if (shouldOpenInitialWindow(launchedHidden, initialDestination)) {
     await createWindow();
   }
   watchMainThreadStalls();
@@ -308,6 +320,9 @@ async function postLaunchInit(): Promise<void> {
     .catch((error) => log.warn("[pond] capture recovery failed", error));
   void startAutoImport().catch((err) =>
     log.warn("[pond] auto-import failed to start", err),
+  );
+  void startLibraryReplication().catch((err) =>
+    log.warn("[pond] library replication failed to start", err),
   );
 
   await initTray();
@@ -436,6 +451,7 @@ app.on("before-quit", async (event) => {
   globalShortcut.unregisterAll();
   try {
     await waitForLibraryLocationChanges();
+    await stopLibraryReplication();
     await stopAutoImport();
     await stopLibraryTransfers();
   } catch (error) {

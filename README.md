@@ -2,14 +2,35 @@
 
 ## Install
 
-Download the latest `.dmg` from [GitHub Releases](https://github.com/raphaelsalaja/pond/releases), or install it with Homebrew:
+### This fork
+
+Published fork builds are attached to the
+[`notKleja/pond` releases](https://github.com/notKleja/pond/releases). Windows
+x64 uses `Pond-X.Y.Z-x64.exe`; macOS uses the matching arm64 or x64 `.dmg`.
+
+Before a tagged release exists, the
+[Package desktop workflow](https://github.com/notKleja/pond/actions/workflows/package-desktop.yml)
+can build downloadable `windows-x64` and `macos-unsigned` artifacts after its
+type checks, port tests, architecture check, and packaging jobs succeed. The
+Windows x64 application bundle and native dependencies were exercised during
+this port.
+The macOS artifact is unsigned and was not exercised on a physical Mac, so keep
+verified backups while validating the first Mac round trip. Maintainers can
+build the same packages locally with `pnpm dist:win` or `pnpm dist:mac`.
+
+### Upstream macOS build
+
+The upstream signed and notarized macOS release remains available through its
+Homebrew cask:
 
 ```bash
 brew tap raphaelsalaja/pond https://github.com/raphaelsalaja/pond
 brew install --cask raphaelsalaja/pond/pond
 ```
 
-Pond needs macOS 13 or later, on Apple Silicon or Intel. It's signed and notarized, and it updates itself from GitHub Releases. Windows and Linux are on the [roadmap](ROADMAP.md).
+That cask installs the upstream application and does not include this fork's
+Windows port or Mac and Windows Library replication. Upstream Pond needs macOS
+13 or later, on Apple Silicon or Intel.
 
 ### Browser extension
 
@@ -40,6 +61,9 @@ and sends every Library operation through the authenticated loopback service.
 Run `pond --help` for commands and output formats.
 
 ## Development
+
+For opt-in asynchronous replication between separate macOS and Windows Library
+forks, see [Mac and Windows Library replication](docs/library-replication.md).
 
 Requires Node.js 24 (see `.nvmrc`) and pnpm 11.27.0.
 

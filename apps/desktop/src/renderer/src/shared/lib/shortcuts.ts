@@ -20,6 +20,7 @@ export {
   isValidShortcut,
   RATING_COMMANDS,
   resolveShortcuts,
+  SHORTCUT_PLATFORM,
   SHORTCUTS,
   type ShortcutDef,
   type ShortcutId,

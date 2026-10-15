@@ -89,6 +89,8 @@ describe("library settings", () => {
     expect(host.querySelector('[aria-label="Choose Logo"] img')).toBeTruthy();
     expect(host.textContent).not.toContain("Customize Library");
     expect(host.textContent).not.toContain("Accent Color");
+    expect(host.textContent).toContain("Mac + Windows Replication");
+    expect(host.textContent).toContain("Choose Exchange Folder");
   });
 
   it("chooses and resets a logo", async () => {

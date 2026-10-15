@@ -19,3 +19,8 @@
   font-size: var(--ds-text-sm);
   color: var(--ds-red-11);
 }
+
+.replicationStatus {
+  display: block;
+  margin-top: 4px;
+}

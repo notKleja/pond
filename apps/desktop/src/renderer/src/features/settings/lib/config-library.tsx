@@ -5,7 +5,18 @@ import { trashSection } from "@/features/settings/lib/config-trash";
 export const librarySection: SectionConfig = {
   title: "Library",
   description: "Change how the open library appears.",
-  keywords: ["library", "identity", "name", "logo", "icon"],
+  keywords: [
+    "library",
+    "identity",
+    "name",
+    "logo",
+    "icon",
+    "replication",
+    "sync",
+    "mac",
+    "windows",
+    "exchange",
+  ],
   groups: [
     {
       title: "Library",

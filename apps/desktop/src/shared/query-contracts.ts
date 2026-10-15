@@ -225,6 +225,7 @@ export interface QueryInputs
     mark?: LibraryMarkSource | null;
     accent?: string | null;
   };
+  "library.replication.set": { exchangeDirectory: string | null };
   "library.identity.pickIcon": EmptyInput;
   "library.rename": {
     name: string;
@@ -290,6 +291,8 @@ export interface QueryInputs
   "agent.mcpSnippet": EmptyInput;
   "agent.openMcpInstall": { id: "cursor" | "vscode" };
   "library.info": EmptyInput;
+  "library.replication.status": EmptyInput;
+  "library.replication.pickFolder": EmptyInput;
   "library.rescan": EmptyInput;
   "library.openInFinder": EmptyInput;
   "library.exportDebugReport": EmptyInput;
@@ -357,6 +360,23 @@ export interface QueryResults
     mark?: LibraryMarkSource | null;
     accent?: string | null;
   }>;
+  "library.replication.set": OkResult;
+  "library.replication.pickFolder": CancellableResult<{ path: string }>;
+  "library.replication.status": {
+    enabled: boolean;
+    exchangeDirectory: string | null;
+    deviceId: string | null;
+    lastRunAt: string | null;
+    lastError: string | null;
+    lastResult: {
+      published: number;
+      applied: number;
+      ignored: number;
+      conflicts: number;
+      incomplete: number;
+      rejected: number;
+    } | null;
+  };
   "library.identity.pickIcon": LibraryLocationResult<{ icon: string }>;
   "library.rename": OkResult<{ path: string }>;
   "library.recent.pickIcon": LibraryLocationResult<{ icon: string }>;

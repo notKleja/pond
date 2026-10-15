@@ -6,6 +6,17 @@ import { libraryId } from "./paths";
 
 let pendingDeepLink: string | null = null;
 
+export function deepLinkArg(argv: readonly string[]): string | null {
+  return argv.find((arg) => arg.startsWith("pond://")) ?? null;
+}
+
+export function shouldOpenInitialWindow(
+  launchedHidden: boolean,
+  deepLinkDestination: "library" | undefined,
+): boolean {
+  return !launchedHidden || deepLinkDestination === "library";
+}
+
 export function consumePendingDeepLink(): string | null {
   const route = pendingDeepLink;
   pendingDeepLink = null;

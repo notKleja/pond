@@ -131,7 +131,7 @@ export function ProcessingStatusCard({
           : failed
             ? `${plural(failed, "task", "tasks")} couldn't finish`
             : enabled
-              ? "New saves are processed on this Mac."
+              ? "New saves are processed on this computer."
               : "Turn on a processing option below to get started.";
   const canRetry = loaded && enabled && !busy && (failed > 0 || checkFailed);
 

@@ -5,8 +5,7 @@ import {
 
 export const mcpSection = defineCustomSection({
   title: "Model Context Protocol",
-  description:
-    "Let Cursor and Claude search this library over stdio on this Mac.",
+  description: "Let Cursor and Claude search this library over local stdio.",
   keywords: [
     "mcp",
     "model context protocol",

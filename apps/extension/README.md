@@ -4,7 +4,7 @@ Browser extension that captures saves from supported sites into your local Pond 
 
 ## Install from a release
 
-1. Download `pond-extension-X.Y.Z.zip` from [GitHub Releases](https://github.com/raphaelsalaja/pond/releases).
+1. Download `pond-extension-X.Y.Z.zip` from [this fork's GitHub Releases](https://github.com/notKleja/pond/releases).
 2. Unzip the archive.
 3. Open Chrome → `chrome://extensions`
 4. Enable **Developer mode**

@@ -47,8 +47,8 @@ export function Onboarding({
             </Dialog.Title>
             <Dialog.Description className={styles.description}>
               Keep everything you save on X, Instagram, YouTube, and the web in
-              one library on this Mac. Connect an account to sync new saves,
-              then search them all on-device.
+              one library on this computer. Connect an account to sync new
+              saves, then search them all on-device.
             </Dialog.Description>
             <div className={styles.actions}>
               <Button onClick={finish}>Get Started</Button>

@@ -45,7 +45,7 @@ export function McpSection() {
         <Settings.HeaderText>
           <Settings.Title>Model Context Protocol</Settings.Title>
           <Settings.Description>
-            Let Cursor and Claude search this library over stdio on this Mac.
+            Let Cursor and Claude search this library over local stdio.
           </Settings.Description>
         </Settings.HeaderText>
       </Settings.Header>

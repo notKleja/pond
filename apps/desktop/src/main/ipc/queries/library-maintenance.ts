@@ -10,6 +10,10 @@ import {
   updateLibraryIdentity,
 } from "../../core/library-identity";
 import { purgeDirectory, verifyLibraryIntegrity } from "../../core/library-ops";
+import {
+  getLibraryReplicationStatus,
+  setLibraryReplicationDirectory,
+} from "../../core/library-replication";
 import { getPrefs, invalidatePrefs, setPrefs } from "../../core/prefs";
 import { reconcileLibrary } from "../../core/scan";
 import { VIDEO_CACHE_DIR } from "../../core/video-preview-proxy";
@@ -23,6 +27,42 @@ export const libraryMaintenanceQueries = {
     const path = libraryRoot();
     return { path, ...readLibraryIdentity(path) };
   },
+
+  async "library.replication.status"() {
+    return getLibraryReplicationStatus();
+  },
+
+  async "library.replication.pickFolder"(): Promise<
+    QueryResult<"library.replication.pickFolder">
+  > {
+    const result = await dialog.showOpenDialog({
+      title: "Choose the Library Replication Exchange Folder",
+      buttonLabel: "Use for Replication",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    const path = result.filePaths[0];
+    return result.canceled || !path
+      ? { ok: false as const, reason: "cancelled" as const }
+      : { ok: true as const, path };
+  },
+
+  "library.replication.set": query(
+    z.object({ exchangeDirectory: z.string().nullable() }),
+    async ({ exchangeDirectory }) => {
+      try {
+        await setLibraryReplicationDirectory(exchangeDirectory);
+        return { ok: true as const };
+      } catch (error) {
+        return {
+          ok: false as const,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not configure Library replication.",
+        };
+      }
+    },
+  ),
 
   "library.identity.update": query(
     z.object({

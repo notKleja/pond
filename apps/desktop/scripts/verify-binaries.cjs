@@ -6,12 +6,22 @@ const { z } = require("zod");
 exports.default = async function verifyBinaries(context) {
   const platform = normalizePlatform(context.electronPlatformName);
   const resourcesDir = resolveResourcesDir(context, platform);
-  pruneOnnxRuntime(resourcesDir, platform, normalizeArch(context.arch));
-  const ffmpegPath = join(resourcesDir, "bin", "ffmpeg");
-  const nativeHostPath = join(resourcesDir, "bin", "pond-native-host");
+  const arch = normalizeArch(context.arch);
+  pruneOnnxRuntime(resourcesDir, platform, arch);
+  pruneBetterSqlitePrebuilds(resourcesDir, platform, arch);
+  const ffmpegPath = join(resourcesDir, "bin", ffmpegName(platform));
+  const nativeHostPath = join(resourcesDir, "bin", nativeHostName(platform));
 
   assertPresent(ffmpegPath, "ffmpeg");
-  if (platform === "darwin") {
+  if (platform === "darwin" || platform === "win32") {
+    assertPresent(
+      betterSqlitePath(resourcesDir, platform, arch),
+      "better-sqlite3 native module",
+    );
+    assertPresent(
+      sqliteVecPath(resourcesDir, platform, arch),
+      "sqlite-vec native module",
+    );
     assertPresent(nativeHostPath, "pond-native-host");
     assertPresent(
       join(resourcesDir, "extension", "manifest.json"),
@@ -64,9 +74,58 @@ function pruneOnnxRuntime(resourcesDir, platform, arch) {
   }
 }
 
+function pruneBetterSqlitePrebuilds(resourcesDir, platform, arch) {
+  if (arch === "universal") return;
+  const prebuilds = join(
+    resourcesDir,
+    "app.asar.unpacked",
+    "node_modules",
+    "better-sqlite3",
+    "prebuilds",
+  );
+  if (!existsSync(prebuilds)) return;
+  const expected = `${platform}-${arch}.node`;
+  for (const filename of readdirSync(prebuilds)) {
+    if (filename !== expected)
+      rmSync(join(prebuilds, filename), { force: true });
+  }
+}
+
 function normalizePlatform(electronPlatformName) {
   if (electronPlatformName === "mas") return "darwin";
   return electronPlatformName;
+}
+
+function ffmpegName(platform) {
+  return platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+}
+
+function nativeHostName(platform) {
+  return platform === "win32" ? "pond-native-host.exe" : "pond-native-host";
+}
+
+function betterSqlitePath(resourcesDir, platform, arch) {
+  return join(
+    resourcesDir,
+    "app.asar.unpacked",
+    "node_modules",
+    "better-sqlite3",
+    "prebuilds",
+    `${platform}-${arch}.node`,
+  );
+}
+
+function sqliteVecPath(resourcesDir, platform, arch) {
+  const os = platform === "win32" ? "windows" : platform;
+  const extension =
+    platform === "win32" ? "dll" : platform === "darwin" ? "dylib" : "so";
+  return join(
+    resourcesDir,
+    "app.asar.unpacked",
+    "node_modules",
+    `sqlite-vec-${os}-${arch}`,
+    `vec0.${extension}`,
+  );
 }
 
 function resolveResourcesDir(context, platform) {
@@ -94,3 +153,10 @@ function assertPresent(path, label) {
     throw new Error(`[pond verify] bundled ${label} at ${path} is empty.`);
   }
 }
+
+exports.ffmpegName = ffmpegName;
+exports.nativeHostName = nativeHostName;
+exports.normalizePlatform = normalizePlatform;
+exports.resolveResourcesDir = resolveResourcesDir;
+exports.betterSqlitePath = betterSqlitePath;
+exports.sqliteVecPath = sqliteVecPath;

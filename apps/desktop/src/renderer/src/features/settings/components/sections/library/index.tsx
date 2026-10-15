@@ -44,6 +44,7 @@ export function LibrarySettings() {
   return (
     <Settings.List>
       <LibraryIdentitySettings info={info} />
+      <LibraryReplicationSettings />
       {recent.length > 1 ? (
         <Settings.Item id="setting-library-recent">
           <Settings.ItemDetails>
@@ -89,6 +90,88 @@ export function LibrarySettings() {
         </Settings.Item>
       ) : null}
     </Settings.List>
+  );
+}
+
+function LibraryReplicationSettings() {
+  const client = useQueryClient();
+  const { data: status } = useQuery({
+    queryKey: ["library-replication-status"],
+    queryFn: () => window.pond.query("library.replication.status", {}),
+    refetchInterval: 30_000,
+  });
+  const configure = useMutation({
+    mutationFn: async (exchangeDirectory: string | null) => {
+      const result = await window.pond.query("library.replication.set", {
+        exchangeDirectory,
+      });
+      if (!result.ok)
+        throw new Error(result.error ?? "Couldn't configure replication.");
+    },
+    onSuccess: async () => {
+      await client.invalidateQueries({
+        queryKey: ["library-replication-status"],
+      });
+    },
+  });
+
+  const choose = async () => {
+    const result = await window.pond.query(
+      "library.replication.pickFolder",
+      {},
+    );
+    if (!result.ok) return;
+    await configure.mutateAsync(result.path);
+  };
+
+  const detail = status?.enabled
+    ? `Exchange: ${status.exchangeDirectory ?? "Unknown"}`
+    : "Choose the same synced exchange folder on each computer. Each computer must use its own local Library fork; Pond never opens SQLite or a Library bundle through the exchange folder.";
+  const activity = status?.lastError
+    ? status.lastError
+    : status?.lastRunAt
+      ? `Last checked ${new Date(status.lastRunAt).toLocaleString()}. Published ${status.lastResult?.published ?? 0}; applied ${status.lastResult?.applied ?? 0}.`
+      : null;
+  const replicationError =
+    configure.error?.message ??
+    status?.lastError ??
+    (status?.lastResult?.rejected
+      ? `${status.lastResult.rejected} exchange bundle${status.lastResult.rejected === 1 ? " was" : "s were"} rejected. Let the file service finish, then check again.`
+      : null);
+
+  return (
+    <Settings.Item id="setting-library-replication">
+      <Settings.ItemDetails>
+        <Settings.ItemTitle>Mac + Windows Replication</Settings.ItemTitle>
+        <Settings.ItemDescription>
+          {detail}
+          {activity ? (
+            <span className={styles.replicationStatus}>{activity}</span>
+          ) : null}
+          <StatusNote error={replicationError} />
+        </Settings.ItemDescription>
+      </Settings.ItemDetails>
+      <Settings.ItemControl>
+        {status?.enabled ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={configure.isPending}
+            onClick={() => configure.mutate(null)}
+          >
+            Turn Off
+          </Button>
+        ) : null}
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={configure.isPending}
+          onClick={() => void choose()}
+        >
+          {status?.enabled ? "Change Folder" : "Choose Exchange Folder"}
+        </Button>
+      </Settings.ItemControl>
+    </Settings.Item>
   );
 }
 

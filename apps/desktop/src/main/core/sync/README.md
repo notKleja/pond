@@ -1,5 +1,11 @@
 # `core/sync`
 
+This module syncs remote source lists into one local Library. Cross-device
+Library replication is a separate opt-in protocol documented in
+[`docs/library-replication.md`](../../../../../../docs/library-replication.md).
+It uses separate local Libraries and indexes; a shared `.pond` folder is not a
+supported cross-device database.
+
 Top-level sync orchestration: turn "import everything I've saved through an
 Account or Watch" into idempotent enqueues into the URL-first ingest pipeline,
 safely and incrementally.

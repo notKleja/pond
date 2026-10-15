@@ -1,16 +1,24 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignoreBinaries": ["iconutil", "cc"],
+  "ignoreBinaries": ["iconutil", "cc", "cl", "reg.exe", "whoami.exe"],
   "workspaces": {
     "apps/desktop": {
       "entry": [
         "src/renderer/src/routes/**/*.{ts,tsx}",
+        "src/renderer/src/main.tsx",
+        "src/renderer/src/capture.tsx",
+        "src/renderer/src/combine-images.tsx",
+        "src/renderer/src/preview.ts",
         "scripts/*.{mjs,cjs,ts}",
         "src/main/core/media-warm/service.ts",
         "src/main/core/enrichment-sidecar.ts"
       ],
       "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{mjs,cjs,ts}"],
-      "ignoreDependencies": ["@types/better-sqlite3", "drizzle-kit"]
+      "ignoreDependencies": [
+        "@pond/theme",
+        "@types/better-sqlite3",
+        "drizzle-kit"
+      ]
     },
     "apps/website": {
       "project": ["**/*.{ts,tsx}"],

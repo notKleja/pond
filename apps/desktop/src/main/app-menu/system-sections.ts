@@ -78,6 +78,15 @@ export function buildHelpSection(context: AppMenuContext): AppMenuItem {
     label: "Help",
     role: "help",
     submenu: [
+      ...(!context.isMac
+        ? ([
+            {
+              role: "about",
+              label: `About ${context.appName}`,
+            },
+            { type: "separator" },
+          ] satisfies AppMenuItem[])
+        : []),
       {
         label: "Help Center",
         click: context.openExternalUrl(
@@ -108,7 +117,7 @@ export function buildHelpSection(context: AppMenuContext): AppMenuItem {
       {
         label: "Release Notes",
         click: context.openExternalUrl(
-          "https://github.com/raphaelsalaja/pond/releases",
+          "https://github.com/notKleja/pond/releases",
         ),
       },
       {
@@ -123,7 +132,9 @@ export function buildHelpSection(context: AppMenuContext): AppMenuItem {
       },
       { type: "separator" },
       {
-        label: "Show Logs in Finder",
+        label: context.isMac
+          ? "Show Logs in Finder"
+          : "Show Logs in File Explorer",
         click: context.showLogs,
       },
     ],

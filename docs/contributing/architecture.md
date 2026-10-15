@@ -22,6 +22,26 @@ apps/desktop/src/
 
 The main process separates startup composition, Electron integration, domain operations, persistence, and background work. `main/core` owns Library behavior and application workflows. `main/lib` owns reusable infrastructure with no product orchestration. `main/index.ts` composes startup dependencies, including database-open migrations. Domain modules consume explicit runtime operations rather than importing the startup entrypoint. Shared desktop contracts contain no main- or renderer-specific implementations.
 
+### Cross-device Library replication
+
+Cross-device replication never shares an active `.pond` bundle or SQLite
+index. Each installation owns a local Library fork and its local
+`userData/indexes/<library-id>.db`. The opt-in replication service exchanges
+immutable, checksummed entity snapshots and tombstones through a user-selected
+folder. A local Lamport counter and stable device/event identity provide a
+deterministic last-writer-wins order without trusting wall clocks. Incoming
+events are idempotent and apply through `executeBatch`, so the existing
+recoverable batch journal remains the only disk/index commit path.
+
+The exchange protocol stages locally, publishes by directory rename, and
+requires a completion marker plus an exact bounded inventory before applying.
+It rejects traversal, symbolic links, extra content, checksum damage,
+case-insensitive collisions, and Windows-reserved paths. A rejected event is
+reported without blocking later valid events. Remote-applied sync actions carry
+a replication actor reason and are not exported again. See
+[`docs/library-replication.md`](../library-replication.md) for setup and current
+coverage limits.
+
 Library search parses filters locally and can use on-device semantic matching. Natural-language model requests belong to Agent chat; the search bar does not call an Agent provider or expose a separate model-assistance preference. Older stored `ai.nlCompiler` values are ignored when preferences are parsed.
 
 The Agent uses the Vercel AI SDK in the main process: `ToolLoopAgent`, `generateText`, and provider clients created with the user's key or a local base URL. Inference uses direct provider clients and native model IDs; Gateway is used only as a public metadata catalog. Renderer chat state comes from `useChat` and a Pond `ChatTransport` that posts JSON over a MessagePort and reads an SSE `Response` (`x-vercel-ai-ui-message-stream: v1`). Preload forwards serializable reply bytes through callbacks and returns a cancellation function; `AbortSignal`, `ReadableStream`, and `Response` stay in the renderer because their prototypes cannot cross the context bridge. The composer snapshots the selected model and run controls into each send, so immediate sends and retries do not depend on preference-write timing. Keys stay in main and the keychain. The model interprets each request and chooses tools through the SDK loop; there is no keyword intent router, forced pre-search, or automatic result selection. Library execution, citation validation, and Apply/Undo review remain domain operations. Composer drafts, Save attachments, the chat header, and review UI remain product state. Pond extras ride as UIMessage data parts (`data-pond-question`, `data-pond-review`, `data-pond-sources`, `data-pond-results`, `data-pond-steps`, transient `data-pond-activity`).

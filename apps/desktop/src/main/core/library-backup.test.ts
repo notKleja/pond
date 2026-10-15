@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { isWindowsSymlinkPrivilegeError } from "../test/symlink";
 import {
   createLibraryBackup,
   restoreLibraryBackup,
@@ -143,11 +144,19 @@ describe("verified library backup", () => {
     );
   });
 
-  it("rejects library symlinks rather than copying external data", async () => {
+  it("rejects library symlinks rather than copying external data", async (ctx) => {
     const { root, source, destination } = await fixture();
     const outside = join(root, "outside.txt");
     await writeFile(outside, "external");
-    await symlink(outside, join(source, "external.txt"));
+    try {
+      await symlink(outside, join(source, "external.txt"));
+    } catch (error) {
+      if (error instanceof Error && isWindowsSymlinkPrivilegeError(error)) {
+        ctx.skip("Windows symlink privilege is unavailable");
+        return;
+      }
+      throw error;
+    }
     await expect(createLibraryBackup({ source, destination })).rejects.toThrow(
       "symbolic link",
     );

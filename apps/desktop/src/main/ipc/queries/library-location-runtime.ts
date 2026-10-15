@@ -5,6 +5,10 @@ import { startAutoImport, stopAutoImport } from "../../core/auto-import";
 import { closeCombineImagesWindow } from "../../core/combine-images-window";
 import { resumeMutations, suspendMutations } from "../../core/executor";
 import {
+  startLibraryReplication,
+  stopLibraryReplication,
+} from "../../core/library-replication";
+import {
   resumeLibraryTransfers,
   stopLibraryTransfers,
 } from "../../core/library-transfers";
@@ -36,11 +40,13 @@ const libraryWork = createLibraryWorkCoordinator({
 });
 
 export async function suspendLibraryWork(): Promise<void> {
+  await stopLibraryReplication();
   await libraryWork.suspend();
 }
 
 export async function resumeLibraryWork(): Promise<void> {
   await libraryWork.resume();
+  await startLibraryReplication();
 }
 
 let relaunchPending = false;
