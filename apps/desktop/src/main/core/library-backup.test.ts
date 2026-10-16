@@ -132,6 +132,18 @@ describe("verified library backup", () => {
     ).rejects.toThrow("missing or damaged");
   });
 
+  it("refuses destinations inside or around the source library", async () => {
+    const { root, source } = await fixture();
+    const nested = join(source, "Backup.pond");
+    await expect(
+      createLibraryBackup({ source, destination: nested }),
+    ).rejects.toThrow("outside the source library");
+    await expect(
+      createLibraryBackup({ source, destination: root }),
+    ).rejects.toThrow("outside the source library");
+    expect(await readdir(source)).not.toContain("Backup.pond");
+  });
+
   it("does not overwrite an occupied destination", async () => {
     const { source, destination } = await fixture();
     await mkdir(destination);
