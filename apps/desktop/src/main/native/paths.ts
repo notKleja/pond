@@ -21,7 +21,8 @@ export function parseWindowsUserSid(output: string): string {
 async function loadWindowsUserSid(): Promise<string> {
   try {
     const { stdout } = await execFileAsync(
-      "whoami.exe",
+      // Not looked up on PATH, where another whoami (Git Bash's) can shadow it.
+      join(process.env.SystemRoot ?? "C:\\Windows", "System32", "whoami.exe"),
       ["/user", "/fo", "csv", "/nh"],
       {
         encoding: "utf8",
