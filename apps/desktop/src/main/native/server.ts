@@ -148,7 +148,10 @@ export async function startNativeServer(
   });
   openSockets.set(server, sockets);
   await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
+    server.once("error", (err) => {
+      log.error("[pond native] listen failed", path, err);
+      reject(err);
+    });
     server.listen(path, () => resolve());
   });
   if (!namedPipe) {
