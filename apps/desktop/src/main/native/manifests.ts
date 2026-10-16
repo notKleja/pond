@@ -12,6 +12,7 @@ import { app } from "electron";
 import log from "electron-log/main.js";
 
 const HOST_FILENAME = `${NATIVE_HOST_NAME}.json`;
+const FIREFOX_HOST_FILENAME = `${NATIVE_HOST_NAME}.firefox.json`;
 const execFileAsync = promisify(execFile);
 
 const CHROMIUM_NMH_DIRS = [
@@ -61,6 +62,13 @@ export const WINDOWS_NATIVE_MESSAGING_REGISTRY_KEYS = [
   `HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
   `HKCU\\Software\\BraveSoftware\\Brave-Browser\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
   `HKCU\\Software\\Vivaldi\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+] as const;
+
+/** Zen reads Firefox's key; the other forks keep their own. */
+export const WINDOWS_FIREFOX_REGISTRY_KEYS = [
+  `HKCU\\Software\\Mozilla\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+  `HKCU\\Software\\LibreWolf\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+  `HKCU\\Software\\Floorp\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
 ] as const;
 
 export function nativeHostFilename(platform: NodeJS.Platform): string {
@@ -207,30 +215,47 @@ async function writeWindowsNativeHostManifest(
   dependencies: NativeHostManifestDependencies,
 ): Promise<void> {
   const dir = join(dependencies.userDataDirectory(), "native-messaging");
-  const manifestPath = join(dir, HOST_FILENAME);
-  try {
-    dependencies.makeDirectory(dir);
-    dependencies.writeFile(manifestPath, chromiumNativeHostManifest(hostPath));
-  } catch (err) {
-    dependencies.warn(
-      "[pond native] failed to write host manifest",
-      manifestPath,
-      err,
-    );
-    return;
-  }
+  // Chromium and Firefox reject each other's allow-list field, so each family
+  // registers its own manifest.
+  const targets = [
+    {
+      manifestPath: join(dir, HOST_FILENAME),
+      body: chromiumNativeHostManifest(hostPath),
+      keys: WINDOWS_NATIVE_MESSAGING_REGISTRY_KEYS,
+    },
+    {
+      manifestPath: join(dir, FIREFOX_HOST_FILENAME),
+      body: firefoxNativeHostManifest(hostPath),
+      keys: WINDOWS_FIREFOX_REGISTRY_KEYS,
+    },
+  ];
+  for (const { manifestPath, body, keys } of targets) {
+    try {
+      dependencies.makeDirectory(dir);
+      dependencies.writeFile(manifestPath, body);
+    } catch (err) {
+      dependencies.warn(
+        "[pond native] failed to write host manifest",
+        manifestPath,
+        err,
+      );
+      continue;
+    }
 
-  await Promise.all(
-    WINDOWS_NATIVE_MESSAGING_REGISTRY_KEYS.map(async (key) => {
-      try {
-        await dependencies.runRegistry(windowsRegistryArgs(key, manifestPath));
-      } catch (err) {
-        dependencies.warn(
-          "[pond native] failed to register host manifest",
-          key,
-          err,
-        );
-      }
-    }),
-  );
+    await Promise.all(
+      keys.map(async (key) => {
+        try {
+          await dependencies.runRegistry(
+            windowsRegistryArgs(key, manifestPath),
+          );
+        } catch (err) {
+          dependencies.warn(
+            "[pond native] failed to register host manifest",
+            key,
+            err,
+          );
+        }
+      }),
+    );
+  }
 }

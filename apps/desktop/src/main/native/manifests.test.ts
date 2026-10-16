@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   chromiumNativeHostManifest,
   nativeHostFilename,
+  WINDOWS_FIREFOX_REGISTRY_KEYS,
   WINDOWS_NATIVE_MESSAGING_REGISTRY_KEYS,
   windowsRegistryArgs,
   writeNativeHostManifests,
 } from "./manifests";
+
+const posix = (path: string) => path.replaceAll("\\", "/");
 
 describe("native host manifests", () => {
   it("writes browser-specific manifests through the production operation", async () => {
@@ -57,10 +60,10 @@ describe("native host manifests", () => {
       hostPath: () => "/Applications/Pond.app/pond-native-host",
       home: () => "/Users/test",
       exists: (path) =>
-        path === "/Applications/Pond.app/pond-native-host" ||
-        path === "/Applications/Firefox.app",
+        posix(path) === "/Applications/Pond.app/pond-native-host" ||
+        posix(path) === "/Applications/Firefox.app",
       makeDirectory: () => {},
-      writeFile: (path) => writes.push(path),
+      writeFile: (path) => writes.push(posix(path)),
     });
 
     expect(writes).toEqual([
@@ -107,7 +110,7 @@ describe("native host manifests", () => {
     ).toContain(manifestPath);
   });
 
-  it("writes one manifest and registers it for every Windows browser key", async () => {
+  it("registers a Chromium and a Firefox manifest on Windows", async () => {
     const writes = new Map<string, string>();
     const registry: string[][] = [];
     await writeNativeHostManifests({
@@ -122,11 +125,35 @@ describe("native host manifests", () => {
       },
     });
 
-    expect(writes.size).toBe(1);
-    expect(registry).toHaveLength(
-      WINDOWS_NATIVE_MESSAGING_REGISTRY_KEYS.length,
+    const chromiumPath = [...writes.keys()].find((path) =>
+      path.endsWith("so.pond.host.json"),
     );
-    expect(registry[0]).toContain([...writes.keys()][0]);
+    const firefoxPath = [...writes.keys()].find((path) =>
+      path.endsWith("so.pond.host.firefox.json"),
+    );
+    expect(chromiumPath).toBeDefined();
+    expect(firefoxPath).toBeDefined();
+    expect(JSON.parse(writes.get(chromiumPath ?? "") ?? "")).toMatchObject({
+      allowed_origins: ["chrome-extension://ihciihlcdkopghlpabpmnodncfdboplb/"],
+    });
+    expect(JSON.parse(writes.get(firefoxPath ?? "") ?? "")).toMatchObject({
+      allowed_extensions: ["desktop@pond.so"],
+    });
+    expect(registry).toHaveLength(
+      WINDOWS_NATIVE_MESSAGING_REGISTRY_KEYS.length +
+        WINDOWS_FIREFOX_REGISTRY_KEYS.length,
+    );
+    for (const key of WINDOWS_NATIVE_MESSAGING_REGISTRY_KEYS)
+      expect(registry).toContainEqual(
+        windowsRegistryArgs(key, chromiumPath ?? ""),
+      );
+    for (const key of WINDOWS_FIREFOX_REGISTRY_KEYS)
+      expect(registry).toContainEqual(
+        windowsRegistryArgs(key, firefoxPath ?? ""),
+      );
+    expect(WINDOWS_FIREFOX_REGISTRY_KEYS).toContain(
+      "HKCU\\Software\\Mozilla\\NativeMessagingHosts\\so.pond.host",
+    );
   });
 
   it("does not touch the registry on linux", async () => {
