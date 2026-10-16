@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import {
+  copyFile,
   mkdir,
   mkdtemp,
   readdir,
@@ -13,6 +14,7 @@ import { delimiter, join, resolve } from "node:path";
 import which from "which";
 import { z } from "zod";
 import type { OkResult } from "../../../shared/query-contracts-shared";
+import { killProcessTree } from "../../lib/process-tree";
 
 export type CliProvider = "codex" | "claude-code";
 
@@ -234,8 +236,56 @@ function commandFor(provider: CliProvider) {
 
 function loginHint(provider: CliProvider) {
   return provider === "codex"
-    ? "Run codex login in Terminal and sign in with ChatGPT."
-    : "Run claude auth login in Terminal and sign in with your Claude plan.";
+    ? "Run codex login in a terminal and sign in with ChatGPT."
+    : "Run claude auth login in a terminal and sign in with your Claude plan.";
+}
+
+/** Windows environment names are case-insensitive and usually spelled `Path`. */
+export function pathEnvKey(env: NodeJS.ProcessEnv) {
+  return Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+}
+
+function windowsCliDirectories() {
+  const home = homedir();
+  const { APPDATA, LOCALAPPDATA, NVM_SYMLINK, VOLTA_HOME } = process.env;
+  return [
+    APPDATA && join(APPDATA, "npm"),
+    join(home, ".local/bin"),
+    LOCALAPPDATA && join(LOCALAPPDATA, "Programs"),
+    NVM_SYMLINK,
+    join(home, ".bun/bin"),
+    VOLTA_HOME && join(VOLTA_HOME, "bin"),
+  ].filter((directory): directory is string => Boolean(directory));
+}
+
+const CMD_META_CHARS = /([()\][%!^"`<>&|;, *?])/g;
+
+/**
+ * Quotes one argument for cmd.exe. Batch shims re-parse `%*`, so the escaping
+ * runs once per parse. Characters cmd.exe would still expand are rejected.
+ */
+export function quoteCmdArg(arg: string, passes = 2) {
+  if (/[\r\n%!]/.test(arg) || arg.includes("\0"))
+    throw new Error(
+      "A CLI argument contains characters Windows cannot pass safely.",
+    );
+  const escaped = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1");
+  let quoted = `"${escaped}"`;
+  for (let pass = 0; pass < passes; pass++)
+    quoted = quoted.replace(CMD_META_CHARS, "^$1");
+  return quoted;
+}
+
+/** Node refuses to spawn .cmd/.bat files directly (CVE-2024-27980), so run them through cmd.exe without a shell. */
+export function cmdShimInvocation(executable: string, args: string[]) {
+  const commandLine = [
+    quoteCmdArg(executable, 1),
+    ...args.map((arg) => quoteCmdArg(arg)),
+  ];
+  return {
+    file: process.env.ComSpec ?? "cmd.exe",
+    args: ["/d", "/s", "/c", `"${commandLine.join(" ")}"`],
+  };
 }
 
 async function cliEnvironment(codexHome?: string) {
@@ -254,14 +304,19 @@ async function cliEnvironment(codexHome?: string) {
     env.XDG_CONFIG_HOME = join(codexHome, "config");
     env.XDG_DATA_HOME = join(codexHome, "data");
   }
-  env.PATH = [
-    env.PATH ?? "",
-    join(homedir(), ".local/bin"),
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    ...versions
-      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
-      .map((version) => join(nvm, version, "bin")),
+  const pathKey = pathEnvKey(env);
+  env[pathKey] = [
+    env[pathKey] ?? "",
+    ...(process.platform === "win32"
+      ? windowsCliDirectories()
+      : [
+          join(homedir(), ".local/bin"),
+          "/opt/homebrew/bin",
+          "/usr/local/bin",
+          ...versions
+            .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+            .map((version) => join(nvm, version, "bin")),
+        ]),
   ].join(delimiter);
   return env;
 }
@@ -278,15 +333,22 @@ export async function runCli(input: {
   input.signal?.throwIfAborted();
   const env = await cliEnvironment(input.codexHome);
   const command = commandFor(input.provider);
-  const executable = await which(command, { path: env.PATH }).catch(() => null);
+  const executable = await which(command, { path: env[pathEnvKey(env)] }).catch(
+    () => null,
+  );
   if (!executable)
     throw new Error(`Install ${command} first. ${loginHint(input.provider)}`);
   input.signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, input.args, {
+    const shim =
+      process.platform === "win32" && /\.(cmd|bat)$/i.test(executable)
+        ? cmdShimInvocation(executable, input.args)
+        : { file: executable, args: input.args };
+    const child = spawn(shim.file, shim.args, {
       cwd: input.cwd,
       env,
       shell: false,
+      windowsVerbatimArguments: shim.file !== executable,
       windowsHide: true,
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
@@ -300,7 +362,7 @@ export async function runCli(input: {
       if (!child.pid) return;
       try {
         if (process.platform !== "win32") process.kill(-child.pid, signal);
-        else child.kill(signal);
+        else killProcessTree(child, signal);
       } catch {
         /* The process group may already have exited. */
       }
@@ -433,7 +495,25 @@ export async function prepareCodexRuntime(
   const sourceHome = resolve(
     process.env.CODEX_HOME ?? join(homedir(), ".codex"),
   );
-  await symlink(join(sourceHome, "auth.json"), join(codexHome, "auth.json"));
+  try {
+    await symlink(join(sourceHome, "auth.json"), join(codexHome, "auth.json"));
+  } catch (error) {
+    // Windows needs Developer Mode or elevation to symlink. The isolated home
+    // is deleted by every caller, so a private copy does not outlive the run.
+    if (
+      process.platform !== "win32" ||
+      !(error instanceof Error) ||
+      !("code" in error) ||
+      error.code !== "EPERM"
+    )
+      throw error;
+    await copyFile(
+      join(sourceHome, "auth.json"),
+      join(codexHome, "auth.json"),
+    ).catch((copyError: NodeJS.ErrnoException) => {
+      if (copyError.code !== "ENOENT") throw copyError;
+    });
+  }
   const bundled = await loadBundledCodexCatalog(directory, codexHome, signal);
   const models = bundled.models.map(isolatedCodexModel);
   if (model !== "default" && !models.some((entry) => entry.slug === model)) {

@@ -266,12 +266,12 @@ export function ProviderConnection({
                   <p className={styles.instructions}>
                     {catalog.id === "codex" ? (
                       <>
-                        Sign in with ChatGPT in Terminal using{" "}
+                        Sign in with ChatGPT in a terminal using{" "}
                         <code>codex login</code>, then connect here.
                       </>
                     ) : (
                       <>
-                        Sign in with your Claude plan in Terminal using{" "}
+                        Sign in with your Claude plan in a terminal using{" "}
                         <code>claude auth login</code>, then connect here.
                       </>
                     )}{" "}
