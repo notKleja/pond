@@ -223,6 +223,7 @@ export const savesImportSourceQueries = {
     const win = BrowserWindow.getFocusedWindow();
     const options = {
       properties: ["openDirectory" as const],
+      title: "Choose your mymind export folder",
       message: "Choose your mymind export folder",
     };
     const picked = win
