@@ -14,6 +14,16 @@ export const IS_MAC: boolean = SHORTCUT_PLATFORM === "mac";
 /** The device noun used in settings copy. */
 export const THIS_DEVICE: string = IS_MAC ? "this Mac" : "this computer";
 
+/** The native share sheet exists only on macOS; main rejects saves.share elsewhere. */
+export function canShareOn(platformName: string): boolean {
+  const p = platformName.toLowerCase();
+  return !p.includes("win") && !p.includes("linux");
+}
+
+export const CAN_SHARE: boolean = canShareOn(
+  globalThis.navigator?.platform ?? "",
+);
+
 type Platform = "mac" | "other";
 
 let platform: Platform | null = null;
