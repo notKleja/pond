@@ -47,7 +47,11 @@ import {
   registerYtDlpUpdateCron,
 } from "./crons";
 import { getDb } from "./db";
-import { handleDeepLink } from "./deep-link";
+import {
+  deepLinkArg,
+  handleDeepLink,
+  shouldOpenInitialWindow,
+} from "./deep-link";
 import { registerIpc } from "./ipc";
 import { waitForLibraryLocationChanges } from "./ipc/queries/library-locations";
 import { ensureIngestToken } from "./keychain";
@@ -61,7 +65,7 @@ import { writeNativeHostManifests } from "./native/manifests";
 import { startNativeServer, stopNativeServer } from "./native/server";
 import { libraryRoot, type PondPaths, resolvePaths } from "./paths";
 import { registerProtocol, registerScheme } from "./protocol";
-import { runtimeControls } from "./runtime";
+import { LOGIN_LAUNCH_ARG, runtimeControls } from "./runtime";
 import { configureSessionDefaults } from "./session-config";
 import {
   logStartupTiming,
@@ -110,6 +114,8 @@ if (process.platform === "darwin") {
   });
 }
 
+if (process.platform === "win32") app.setAppUserModelId("so.pond.desktop");
+
 log.initialize();
 log.info("[pond] main starting", {
   version: app.getVersion(),
@@ -117,6 +123,7 @@ log.info("[pond] main starting", {
 });
 
 const wantsMcp = process.argv.includes("--mcp");
+const initialDeepLink = deepLinkArg(process.argv);
 
 let nativeServer: NetServer | null = null;
 let stopMediaWarmer: (() => void) | null = null;
@@ -139,10 +146,17 @@ registerScheme();
 
 const gotSingleInstanceLock = wantsMcp || app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
-  app.quit();
+  if (process.platform === "win32") {
+    /** quit() is async; startup below would keep running against the live library. */
+    app.exit(0);
+  } else {
+    app.quit();
+  }
 }
 
-if (!process.env.POND_SANDBOX && process.defaultApp) {
+if (process.platform === "win32" && !gotSingleInstanceLock) {
+  // This process is exiting; leave the protocol registration alone.
+} else if (!process.env.POND_SANDBOX && process.defaultApp) {
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient("pond", process.execPath, [
       resolvePath(process.argv[1] ?? ""),
@@ -159,7 +173,7 @@ app.on("open-url", (event, url) => {
 });
 
 app.on("second-instance", (_event, argv) => {
-  const url = argv.find((a) => a.startsWith("pond://"));
+  const url = deepLinkArg(argv);
   if (url) {
     const destination = handleDeepLink(url, getMainWindow());
     if (destination === "library") void openLibraryWindow();
@@ -174,6 +188,7 @@ app.on("second-instance", (_event, argv) => {
 });
 
 app.whenReady().then(async () => {
+  if (process.platform === "win32" && !gotSingleInstanceLock) return;
   markStartup("app-ready");
   if (process.platform === "darwin" && !app.isPackaged) {
     const { applyAppIcon } = await import("./core/app-icon");
@@ -183,6 +198,9 @@ app.whenReady().then(async () => {
   const paths = await openActiveLibrary();
   if (!paths) return;
   log.info("[pond] paths", paths);
+  const initialDestination = initialDeepLink
+    ? handleDeepLink(initialDeepLink, getMainWindow())
+    : undefined;
 
   configureSessionDefaults();
 
@@ -220,8 +238,10 @@ app.whenReady().then(async () => {
       .catch(() => false),
   );
   const launchedHidden =
-    wantsLaunchHidden || loginItem.wasOpenedAtLogin === true;
-  if (!launchedHidden) {
+    wantsLaunchHidden ||
+    loginItem.wasOpenedAtLogin === true ||
+    (process.platform === "win32" && process.argv.includes(LOGIN_LAUNCH_ARG));
+  if (shouldOpenInitialWindow(launchedHidden, initialDestination)) {
     await createWindow();
   }
   watchMainThreadStalls();
@@ -288,7 +308,7 @@ async function postLaunchInit(): Promise<void> {
   try {
     if (!process.env.POND_SANDBOX) {
       nativeServer = await startNativeServer();
-      writeNativeHostManifests();
+      await writeNativeHostManifests();
     }
   } catch (err) {
     log.error("[pond] native host failed to start", err);

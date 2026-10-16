@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { z } from "zod";
 import type { GroupConfig, Item } from "@/features/settings/lib/engine-types";
 import { SECTIONS, type SectionDef } from "@/features/settings/lib/registry";
+import { IS_MAC, REVEAL_LABEL, THIS_DEVICE } from "@/shared/lib/platform";
 
 export interface SettingsSearchEntry {
   id: string;
@@ -77,7 +78,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = SECTIONS.filter(
 ).flatMap(sectionEntries);
 
 const MANUAL_ENTRIES = [
-  ["library", "Library", "logo", "Logo", "Choose an image from this Mac"],
+  ["library", "Library", "logo", "Logo", `Choose an image from ${THIS_DEVICE}`],
   ["library", "Library", "name", "Name", "Rename the open library"],
   [
     "library",
@@ -91,7 +92,9 @@ const MANUAL_ENTRIES = [
     "Storage",
     "location",
     "Library Location",
-    "Reveal your library in Finder",
+    IS_MAC
+      ? "Reveal your library in Finder"
+      : `${REVEAL_LABEL} for your library`,
   ],
   [
     "storage",

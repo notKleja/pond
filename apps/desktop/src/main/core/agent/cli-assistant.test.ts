@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { checkCliConnection } from "./cli-runtime";
@@ -100,7 +100,7 @@ const codexDisabledFeatures = [
 const fixture = `#!/usr/bin/env node
 const fs = require('node:fs');
 const args = process.argv.slice(2);
-const codex = process.argv[1].endsWith('/codex');
+const codex = /[\\\\/]codex(\\.js)?$/.test(process.argv[1]);
 const forbiddenEnv = ${JSON.stringify(inheritedProviderEnv)};
 const codexDisabledFeatures = ${JSON.stringify(codexDisabledFeatures)};
 const productionArgs = ['--print', '--output-format', '--json-schema', '--no-session-persistence', '--safe-mode', '--restricted', '--tools', '', '--strict-mcp-config', '--permission-mode', 'dontAsk', '--system-prompt'];
@@ -136,7 +136,7 @@ process.stdin.on('end', () => {
     console.log(JSON.stringify({models: [{slug: 'fixture-model', display_name: 'Fixture model', priority: 1, shell_type: 'unified_exec', apply_patch_tool_type: 'freeform', experimental_supported_tools: ['clock'], supports_search_tool: true}]})); return;
   }
   if (codex && args[0] === 'debug' && args[1] === 'prompt-input') {
-    if (!process.env.CODEX_HOME?.endsWith('/codex-home'))
+    if (!/[\\\\/]codex-home$/.test(process.env.CODEX_HOME ?? ''))
       throw new Error('Codex prompt probe did not use an isolated home');
     if (process.env.POND_CLI_LEAK_SKILL) {
       const tick = String.fromCharCode(96);
@@ -186,12 +186,14 @@ process.stdin.on('end', () => {
       model.include_skills_usage_instructions !== false ||
       model.tool_mode !== null
     )) throw new Error('Codex model catalog exposes a native capability');
-    if (!process.env.CODEX_HOME?.endsWith('/codex-home'))
+    if (!/[\\\\/]codex-home$/.test(process.env.CODEX_HOME ?? ''))
       throw new Error('Codex production request did not use an isolated home');
     const credentialStore = JSON.parse(config.get('cli_auth_credentials_store') ?? 'null');
     if (credentialStore !== 'file')
       throw new Error('Codex production request did not select file-backed credentials');
-    if (!fs.lstatSync(process.env.CODEX_HOME + '/auth.json').isSymbolicLink())
+    const auth = process.env.CODEX_HOME + '/auth.json';
+    // Windows without symlink privilege falls back to a private copy.
+    if (!fs.lstatSync(auth).isSymbolicLink() && (process.platform !== 'win32' || fs.readFileSync(auth, 'utf8') !== 'fixture-auth'))
       throw new Error('Codex authentication was copied instead of linked');
     if (!stdin && args.includes('--output-schema')) {
       if (process.env.POND_CLI_LEGACY_CODEX)
@@ -227,9 +229,17 @@ const originalKeys = Object.fromEntries(
 
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "pond-cli-assistant-"));
-  for (const name of ["codex", "claude"])
-    await writeFile(join(directory, name), fixture, { mode: 0o755 });
-  process.env.PATH = `${directory}:${originalPath}`;
+  for (const name of ["codex", "claude"]) {
+    if (process.platform === "win32") {
+      // Windows cannot execute a shebang file; npm installs CLIs as .cmd shims.
+      await writeFile(join(directory, `${name}.js`), fixture);
+      await writeFile(
+        join(directory, `${name}.cmd`),
+        `@"${process.execPath}" "%~dp0${name}.js" %*\r\n`,
+      );
+    } else await writeFile(join(directory, name), fixture, { mode: 0o755 });
+  }
+  process.env.PATH = `${directory}${delimiter}${originalPath}`;
   process.env.CODEX_HOME = join(directory, "source-codex-home");
   await mkdir(process.env.CODEX_HOME, { recursive: true });
   await writeFile(join(process.env.CODEX_HOME, "auth.json"), "fixture-auth", {
