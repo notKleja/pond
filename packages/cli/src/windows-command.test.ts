@@ -13,7 +13,7 @@ const QUOTE_FIXTURES: Array<[string, number, string]> = [
   ["--print", 1, '^"--print^"'],
   ["with space", 2, '^^^"with^^^ space^^^"'],
   ["a & b", 1, '^"a^ ^&^ b^"'],
-  [String.raw`{"k":"v"}`, 1, String.raw`^"{\^"k\^":\^"v\^"}^"`],
+  ['{"k":"v"}', 1, String.raw`^"{\^"k\^":\^"v\^"}^"`],
   ["trailing\\", 1, String.raw`^"trailing\\^"`],
 ];
 
