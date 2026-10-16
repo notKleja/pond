@@ -150,11 +150,15 @@ registerScheme();
 
 const gotSingleInstanceLock = wantsMcp || app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
-  /** quit() is async; startup below would keep running against the live library. */
-  app.exit(0);
+  if (process.platform === "win32") {
+    /** quit() is async; startup below would keep running against the live library. */
+    app.exit(0);
+  } else {
+    app.quit();
+  }
 }
 
-if (!gotSingleInstanceLock) {
+if (process.platform === "win32" && !gotSingleInstanceLock) {
   // This process is exiting; leave the protocol registration alone.
 } else if (!process.env.POND_SANDBOX && process.defaultApp) {
   if (process.argv.length >= 2) {
@@ -188,7 +192,7 @@ app.on("second-instance", (_event, argv) => {
 });
 
 app.whenReady().then(async () => {
-  if (!gotSingleInstanceLock) return;
+  if (process.platform === "win32" && !gotSingleInstanceLock) return;
   markStartup("app-ready");
   if (process.platform === "darwin" && !app.isPackaged) {
     const { applyAppIcon } = await import("./core/app-icon");
