@@ -10,8 +10,16 @@ function buildContext(appOutDir, electronPlatformName) {
     appOutDir,
     arch: "x64",
     electronPlatformName,
-    packager: { appInfo: { productFilename: "Pond" } },
+    packager: {
+      appInfo: { productFilename: "Pond" },
+      info: { buildResourcesDir: join(appOutDir, "build") },
+    },
   };
+}
+
+/** Packaging hosts that are not Windows skip the ffmpeg run; the fake keeps both identical. */
+function verify(context) {
+  return verifyBinaries.verify(context, { runFfmpeg: () => ({ status: 0 }) });
 }
 
 async function withTemporaryDirectory(run) {
@@ -51,6 +59,29 @@ async function writeWindowsRuntime(resourcesDirectory, options = {}) {
   );
   await mkdir(join(sqliteVec, ".."), { recursive: true });
   await writeFile(sqliteVec, "binary");
+  if (options.sharp !== false) {
+    const lib = join(
+      resourcesDirectory,
+      "app.asar.unpacked/node_modules/@img/sharp-win32-x64/lib",
+    );
+    await mkdir(lib, { recursive: true });
+    await writeFile(join(lib, "sharp-win32-x64.node"), "binary");
+    await writeFile(join(lib, "libvips-42.dll"), "binary");
+  }
+  if (options.onnx !== false) {
+    const bin = join(
+      resourcesDirectory,
+      "app.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/win32/x64",
+    );
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, "onnxruntime_binding.node"), "binary");
+    await writeFile(join(bin, "onnxruntime.dll"), "binary");
+  }
+  if (options.icon !== false) {
+    const build = join(resourcesDirectory, "..", "build");
+    await mkdir(build, { recursive: true });
+    await writeFile(join(build, "icon.png"), "binary");
+  }
 }
 
 test("uses the executable name required by each packaged platform", () => {
@@ -65,7 +96,7 @@ test("accepts the Windows ffmpeg executable in the packaged resources", async ()
   await withTemporaryDirectory(async (appOutDir) => {
     await writeWindowsRuntime(join(appOutDir, "resources"));
 
-    await verifyBinaries.default(buildContext(appOutDir, "win32"));
+    await verify(buildContext(appOutDir, "win32"));
   });
 });
 
@@ -77,7 +108,7 @@ test("rejects a Windows package containing only the Unix ffmpeg name", async () 
     await writeFile(join(binaryDirectory, "ffmpeg"), "binary");
 
     await assert.rejects(
-      verifyBinaries.default(buildContext(appOutDir, "win32")),
+      verify(buildContext(appOutDir, "win32")),
       /missing bundled ffmpeg.*ffmpeg\.exe/,
     );
   });
@@ -90,8 +121,56 @@ test("rejects a Windows package without its native-host executable", async () =>
     });
 
     await assert.rejects(
-      verifyBinaries.default(buildContext(appOutDir, "win32")),
+      verify(buildContext(appOutDir, "win32")),
       /missing bundled pond-native-host.*pond-native-host\.exe/,
+    );
+  });
+});
+
+test("rejects a Windows package without the sharp runtime", async () => {
+  await withTemporaryDirectory(async (appOutDir) => {
+    await writeWindowsRuntime(join(appOutDir, "resources"), { sharp: false });
+
+    await assert.rejects(
+      verify(buildContext(appOutDir, "win32")),
+      /missing sharp win32-x64 runtime/,
+    );
+  });
+});
+
+test("rejects a Windows package without the onnxruntime libraries", async () => {
+  await withTemporaryDirectory(async (appOutDir) => {
+    await writeWindowsRuntime(join(appOutDir, "resources"), { onnx: false });
+
+    await assert.rejects(
+      verify(buildContext(appOutDir, "win32")),
+      /missing bundled onnxruntime onnxruntime_binding.node/,
+    );
+  });
+});
+
+test("rejects a Windows package built without the app icon", async () => {
+  await withTemporaryDirectory(async (appOutDir) => {
+    await writeWindowsRuntime(join(appOutDir, "resources"), { icon: false });
+
+    await assert.rejects(
+      verify(buildContext(appOutDir, "win32")),
+      /missing app icon/,
+    );
+  });
+});
+
+test("rejects a bundled ffmpeg that does not run", {
+  skip: process.platform !== "win32",
+}, async () => {
+  await withTemporaryDirectory(async (appOutDir) => {
+    await writeWindowsRuntime(join(appOutDir, "resources"));
+
+    await assert.rejects(
+      verifyBinaries.verify(buildContext(appOutDir, "win32"), {
+        runFfmpeg: () => ({ status: 1 }),
+      }),
+      /does not run/,
     );
   });
 });
