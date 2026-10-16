@@ -1,3 +1,4 @@
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -192,7 +193,7 @@ process.stdin.on('end', () => {
     if (credentialStore !== 'file')
       throw new Error('Codex production request did not select file-backed credentials');
     const auth = process.env.CODEX_HOME + '/auth.json';
-    // Windows without symlink privilege falls back to a private copy.
+    // Credentials are linked, never copied.
     if (!fs.lstatSync(auth).isSymbolicLink() && (process.platform !== 'win32' || fs.readFileSync(auth, 'utf8') !== 'fixture-auth'))
       throw new Error('Codex authentication was copied instead of linked');
     if (!stdin && args.includes('--output-schema')) {
@@ -219,6 +220,20 @@ process.stdin.on('end', () => {
   } else console.log(JSON.stringify({type: 'result', is_error: false, structured_output: reply}));
 });
 `;
+
+/** Codex credentials are linked, never copied, so Windows without Developer Mode cannot run these. */
+const canLinkCredentials = (() => {
+  const probe = mkdtempSync(join(tmpdir(), "pond-symlink-probe-"));
+  try {
+    symlinkSync(join(probe, "target"), join(probe, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
+const itWithCodex = it.skipIf(!canLinkCredentials);
 
 let directory = "";
 const originalPath = process.env.PATH;
@@ -329,7 +344,18 @@ describe("subscription assistant through real CLI processes", () => {
     }
   });
 
-  it("retries a transient Codex model catalog failure", async () => {
+  it.skipIf(canLinkCredentials)(
+    "gates Codex with an actionable error when symlinks are refused",
+    async () => {
+      const result = await checkCliConnection("codex");
+      expect(result).toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/Developer Mode/),
+      });
+    },
+  );
+
+  itWithCodex("retries a transient Codex model catalog failure", async () => {
     const marker = join(directory, "catalog-failed-once");
     process.env.POND_CLI_CATALOG_FAIL_ONCE = marker;
     try {
@@ -343,19 +369,22 @@ describe("subscription assistant through real CLI processes", () => {
     }
   });
 
-  it("asks for a Codex update when strict isolation config is unavailable", async () => {
-    process.env.POND_CLI_LEGACY_CODEX = "1";
-    try {
-      await expect(checkCliConnection("codex")).resolves.toEqual({
-        ok: false,
-        error:
-          "This Codex version cannot provide Pond's isolated runtime. Update Codex and try again.",
-      });
-    } finally {
-      delete process.env.POND_CLI_LEGACY_CODEX;
-    }
-  });
-  it.each(["POND_CLI_LEAK_SKILL", "POND_CLI_UNSAFE_CATALOG"] as const)(
+  itWithCodex(
+    "asks for a Codex update when strict isolation config is unavailable",
+    async () => {
+      process.env.POND_CLI_LEGACY_CODEX = "1";
+      try {
+        await expect(checkCliConnection("codex")).resolves.toEqual({
+          ok: false,
+          error:
+            "This Codex version cannot provide Pond's isolated runtime. Update Codex and try again.",
+        });
+      } finally {
+        delete process.env.POND_CLI_LEGACY_CODEX;
+      }
+    },
+  );
+  itWithCodex.each(["POND_CLI_LEAK_SKILL", "POND_CLI_UNSAFE_CATALOG"] as const)(
     "rejects Codex when the isolation probe detects %s",
     async (name) => {
       process.env[name] = "1";
@@ -370,15 +399,16 @@ describe("subscription assistant through real CLI processes", () => {
       }
     },
   );
-  it.each(["codex", "claude-code"] as const)(
-    "runs Pond tools and returns a reply with %s",
-    async (provider) => {
-      const reply = run(provider);
-      await expect(reply.result).resolves.toBe("Found a saved article.");
-      expect(reply.calls).toEqual(["design"]);
-      expect(reply.text()).toBe("Found a saved article.");
-    },
-  );
+  it.each(
+    canLinkCredentials
+      ? (["codex", "claude-code"] as const)
+      : (["claude-code"] as const),
+  )("runs Pond tools and returns a reply with %s", async (provider) => {
+    const reply = run(provider);
+    await expect(reply.result).resolves.toBe("Found a saved article.");
+    expect(reply.calls).toEqual(["design"]);
+    expect(reply.text()).toBe("Found a saved article.");
+  });
 
   it("rejects keyring-backed Codex before reporting a connection", async () => {
     process.env.POND_CLI_AUTH_STORE = "keyring";
@@ -392,7 +422,7 @@ describe("subscription assistant through real CLI processes", () => {
     }
   });
 
-  it.each(["fail-fixture", "malformed-fixture"])(
+  itWithCodex.each(["fail-fixture", "malformed-fixture"])(
     "reports %s without inventing a reply",
     async (content) => {
       const reply = run("codex", content);
@@ -404,34 +434,38 @@ describe("subscription assistant through real CLI processes", () => {
     },
   );
 
-  it("stops the actual CLI process when a reply is cancelled", async () => {
-    const controller = new AbortController();
-    const reply = run("codex", "hang-fixture", controller);
-    const rejected = expect(reply.result).rejects.toThrow();
-    let pid = 0;
-    for (let attempt = 0; attempt < 100; attempt++) {
-      const stored = await readFile(join(directory, "child.pid"), "utf8").catch(
-        () => "",
-      );
-      if (stored) {
-        pid = Number(stored);
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    controller.abort();
-    await rejected;
-    expect(pid).toBeGreaterThan(0);
-    await expect
-      .poll(() => {
-        try {
-          process.kill(pid, 0);
-          return false;
-        } catch {
-          return true;
+  itWithCodex(
+    "stops the actual CLI process when a reply is cancelled",
+    async () => {
+      const controller = new AbortController();
+      const reply = run("codex", "hang-fixture", controller);
+      const rejected = expect(reply.result).rejects.toThrow();
+      let pid = 0;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const stored = await readFile(
+          join(directory, "child.pid"),
+          "utf8",
+        ).catch(() => "");
+        if (stored) {
+          pid = Number(stored);
+          break;
         }
-      })
-      .toBe(true);
-    expect(reply.text()).toBe("");
-  });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      controller.abort();
+      await rejected;
+      expect(pid).toBeGreaterThan(0);
+      await expect
+        .poll(() => {
+          try {
+            process.kill(pid, 0);
+            return false;
+          } catch {
+            return true;
+          }
+        })
+        .toBe(true);
+      expect(reply.text()).toBe("");
+    },
+  );
 });

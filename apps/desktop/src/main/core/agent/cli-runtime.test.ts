@@ -1,14 +1,105 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { cmdShimInvocation, pathEnvKey, quoteCmdArg } from "./cli-runtime";
+import {
+  CodexSymlinkUnavailableError,
+  cmdShimInvocation,
+  pathEnvKey,
+  prepareCodexRuntime,
+  quoteCmdArg,
+  scrubbedEnvironment,
+} from "./cli-runtime";
+
+function errno(code: string) {
+  return Object.assign(new Error(code), { code });
+}
+
+describe("prepareCodexRuntime credential isolation", () => {
+  async function run(platform: NodeJS.Platform, code: string) {
+    const directory = await mkdtemp(join(tmpdir(), "pond-codex-test-"));
+    try {
+      const failure = await prepareCodexRuntime(
+        directory,
+        "default",
+        undefined,
+        { symlink: () => Promise.reject(errno(code)), platform },
+      ).catch((error: unknown) => error);
+      return { failure, entries: await readdir(join(directory, "codex-home")) };
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+
+  it("fails with an actionable error and copies nothing when Windows refuses the symlink", async () => {
+    const source = await mkdtemp(join(tmpdir(), "pond-codex-source-"));
+    const original = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = source;
+    try {
+      await writeFile(join(source, "auth.json"), "secret");
+      const { failure, entries } = await run("win32", "EPERM");
+      expect(failure).toBeInstanceOf(CodexSymlinkUnavailableError);
+      expect(String(failure)).toMatch(/Developer Mode/);
+      expect(entries).toEqual([]);
+    } finally {
+      if (original === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = original;
+      await rm(source, { recursive: true, force: true });
+    }
+  });
+
+  it("rethrows other symlink failures unchanged", async () => {
+    const { failure } = await run("win32", "EACCES");
+    expect(failure).toMatchObject({ code: "EACCES" });
+    const posix = await run("linux", "EPERM");
+    expect(posix.failure).not.toBeInstanceOf(CodexSymlinkUnavailableError);
+  });
+});
+
+describe("scrubbedEnvironment", () => {
+  it("removes provider variables whatever their casing on Windows", () => {
+    const env = scrubbedEnvironment(
+      {
+        anthropic_api_key: "x",
+        Openai_Api_Key: "y",
+        Codex_Profile: "z",
+        Path: "C:/bin",
+        Keep: "1",
+      },
+      "win32",
+    );
+    expect(env).toEqual({ Path: "C:/bin", Keep: "1" });
+  });
+
+  it("is case-sensitive elsewhere", () => {
+    const env = scrubbedEnvironment(
+      { anthropic_api_key: "x", ANTHROPIC_API_KEY: "y" },
+      "linux",
+    );
+    expect(env).toEqual({ anthropic_api_key: "x" });
+  });
+
+  it("replaces case-variant home variables instead of duplicating them", () => {
+    const env = scrubbedEnvironment(
+      { UserProfile: "C:/Users/a", Codex_Home: "old" },
+      "win32",
+      "C:/iso",
+    );
+    expect(
+      Object.keys(env).filter((key) => /^userprofile$/i.test(key)),
+    ).toEqual(["USERPROFILE"]);
+    expect(env.CODEX_HOME).toBe("C:/iso");
+    expect(Object.keys(env).filter((key) => /^codex_home$/i.test(key))).toEqual(
+      ["CODEX_HOME"],
+    );
+  });
+});
 
 describe("pathEnvKey", () => {
   it("finds the PATH variable whatever its casing", () => {
-    expect(pathEnvKey({ Path: "C:\bin", HOME: "x" })).toBe("Path");
+    expect(pathEnvKey({ Path: "C:/bin", HOME: "x" })).toBe("Path");
     expect(pathEnvKey({ PATH: "/bin" })).toBe("PATH");
   });
 
@@ -27,6 +118,7 @@ describe("quoteCmdArg", () => {
     "nul\0",
   ])("rejects %j, which cmd.exe would still interpret", (arg) => {
     expect(() => quoteCmdArg(arg)).toThrow(/cannot pass safely/);
+    expect(() => quoteCmdArg(arg)).toThrow(/native executable/);
   });
 
   it("wraps a plain argument in an escaped pair of quotes", () => {
