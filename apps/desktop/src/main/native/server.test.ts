@@ -8,6 +8,7 @@ import type { JsonValue } from "@pond/schema/json";
 import type { NativeMessage } from "@pond/schema/native";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeFrame, tryDecodeFrame } from "./frame";
+import { nativeSocketPath } from "./paths";
 import { startNativeServer, stopNativeServer } from "./server";
 
 let pipeSequence = 0;
@@ -117,9 +118,24 @@ describe("native server", () => {
     "bin",
     "pond-native-host.exe",
   );
+  /** A running Pond owns the per-user pipe; connecting proves it is taken. */
+  function pipeInUse(path: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = createConnection(path);
+      socket.once("connect", () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.once("error", () => resolve(false));
+    });
+  }
+
   it.skipIf(process.platform !== "win32" || !existsSync(windowsHost))(
     "matches the SID-qualified pipe used by the Windows native host",
-    async () => {
+    async (context) => {
+      if (await pipeInUse(await nativeSocketPath())) {
+        context.skip("Pond is running and owns the native host pipe");
+      }
       const server = await startNativeServer({
         dispatch: async () => ({ ok: true as const, data: { app: "pond" } }),
       });
