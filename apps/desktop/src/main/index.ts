@@ -50,6 +50,7 @@ import { getDb } from "./db";
 import {
   deepLinkArg,
   handleDeepLink,
+  handleSecondInstance,
   shouldOpenInitialWindow,
 } from "./deep-link";
 import { registerIpc } from "./ipc";
@@ -59,7 +60,13 @@ import { broadcast } from "./lib/broadcast";
 import { rotateBundleBackups } from "./lib/library-config";
 import { LibraryMetadataError } from "./lib/library-id";
 import { disableMenuActionImages } from "./lib/menu-action-images";
+import { killTrackedProcessTrees } from "./lib/process-tree";
 import { recoverUnreadableLibrary } from "./library-recovery";
+import {
+  protocolRegistration,
+  resolveLaunchHidden,
+  shouldStayResident,
+} from "./lifecycle";
 import { installAppMenu, setMenuRecents } from "./menu";
 import { writeNativeHostManifests } from "./native/manifests";
 import { startNativeServer, stopNativeServer } from "./native/server";
@@ -86,6 +93,7 @@ import {
   handleActivate,
   hasTray,
   initTray,
+  isCloseToTrayEnabled,
   openLibraryWindow,
   queueTrayRefresh,
   setCloseToTray,
@@ -158,20 +166,27 @@ const singleInstanceLock = wantsMcp
       isAlive: isProcessAlive,
     });
 void singleInstanceLock.then((acquired) => {
-  if (acquired) return;
-  log.warn("[pond] another Pond instance holds the lock; quitting");
-  app.quit();
-});
-
-if (!process.env.POND_SANDBOX && process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient("pond", process.execPath, [
-      resolvePath(process.argv[1] ?? ""),
-    ]);
+  if (!acquired) {
+    log.warn("[pond] another Pond instance holds the lock; quitting");
+    app.quit();
+    return;
   }
-} else if (!process.env.POND_SANDBOX) {
-  app.setAsDefaultProtocolClient("pond");
-}
+  const protocolMode = protocolRegistration({
+    platform: process.platform,
+    hasInstanceLock: acquired,
+    sandboxed: Boolean(process.env.POND_SANDBOX),
+    defaultApp: Boolean(process.defaultApp),
+  });
+  if (protocolMode === "development") {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient("pond", process.execPath, [
+        resolvePath(process.argv[1] ?? ""),
+      ]);
+    }
+  } else if (protocolMode === "packaged") {
+    app.setAsDefaultProtocolClient("pond");
+  }
+});
 
 app.on("open-url", (event, url) => {
   event.preventDefault();
@@ -180,24 +195,25 @@ app.on("open-url", (event, url) => {
 });
 
 let started = false;
+/** Set once startup has decided on the initial window and IPC is registered. */
+let launched = false;
 let quitPrepared = false;
 let quitPreparing = false;
 
 app.on("second-instance", (_event, argv) => {
   /** Showing a window while quitting cancels the quit, and this instance would keep the lock. */
   if (quitPreparing) return;
-  const url = deepLinkArg(argv);
-  if (url) {
-    const destination = handleDeepLink(url, getMainWindow());
-    if (destination === "library") void openLibraryWindow();
+  if (!launched) {
+    // Too early to open a window; the initial window picks up the stored link.
+    const url = deepLinkArg(argv);
+    if (url) handleDeepLink(url, null);
     return;
   }
-  const win = getMainWindow();
-  if (win && !win.isDestroyed()) {
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
-  }
+  handleSecondInstance(argv, {
+    handleDeepLink,
+    getMainWindow,
+    openLibraryWindow,
+  });
 });
 
 app.whenReady().then(async () => {
@@ -245,21 +261,21 @@ app.whenReady().then(async () => {
   });
 
   const loginItem = app.getLoginItemSettings();
-  const wantsLaunchHidden = await getPrefs()
-    .then((p) => p.window.launchHidden === true)
-    .catch(() => false);
-  setCloseToTray(
-    await getPrefs()
-      .then((p) => p.window.closeToTray === true)
-      .catch(() => false),
-  );
-  const launchedHidden =
-    wantsLaunchHidden ||
-    loginItem.wasOpenedAtLogin === true ||
-    (process.platform === "win32" && process.argv.includes(LOGIN_LAUNCH_ARG));
+  const launchPrefs = await getPrefs().catch(() => null);
+  const wantsLaunchHidden = launchPrefs?.window.launchHidden === true;
+  setCloseToTray(launchPrefs?.window.closeToTray === true);
+  const launchedHidden = resolveLaunchHidden({
+    platform: process.platform,
+    requested:
+      wantsLaunchHidden ||
+      loginItem.wasOpenedAtLogin === true ||
+      (process.platform === "win32" && process.argv.includes(LOGIN_LAUNCH_ARG)),
+    trayEnabled: launchPrefs?.quickCapture.menuBarIcon !== false,
+  });
   if (shouldOpenInitialWindow(launchedHidden, initialDestination)) {
     await createWindow();
   }
+  launched = true;
   watchMainThreadStalls();
 
   const [tokenResult, dbResult] = await Promise.allSettled([
@@ -321,13 +337,18 @@ async function postLaunchInit(): Promise<void> {
     log.error("[pond] http server failed to start", err);
   }
 
-  try {
-    if (!process.env.POND_SANDBOX) {
+  // Registration must not depend on the pipe: a busy pipe name still leaves the host registered.
+  if (!process.env.POND_SANDBOX) {
+    try {
       nativeServer = await startNativeServer();
-      await writeNativeHostManifests();
+    } catch (err) {
+      log.error("[pond] native host failed to start", err);
     }
-  } catch (err) {
-    log.error("[pond] native host failed to start", err);
+    try {
+      await writeNativeHostManifests();
+    } catch (err) {
+      log.error("[pond] native host registration failed", err);
+    }
   }
 
   void recoverInterruptedSyncs().catch((err) =>
@@ -456,7 +477,15 @@ app.on("window-all-closed", () => {
     app.dock?.hide();
     return;
   }
-  if (hasTray()) return;
+  if (
+    shouldStayResident({
+      platform: process.platform,
+      closeToTray: isCloseToTrayEnabled(),
+      hasTray: hasTray(),
+    })
+  ) {
+    return;
+  }
   app.quit();
 });
 
@@ -470,6 +499,24 @@ function withDeadline(work: Promise<void>, ms: number): Promise<void> {
       ms,
     );
     work.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
+if (process.platform === "win32") {
+  // Windows ends the session without emitting before-quit, so flush what cannot be rebuilt.
+  app.on("browser-window-created", (_event, win) => {
+    win.once("session-end", () => {
+      beginQuit();
+      killTrackedProcessTrees();
+      try {
+        flushGovernor();
+      } catch (err) {
+        log.warn("[pond] governor flush failed", err);
+      }
+      void flushTagsDump().catch((err) =>
+        log.warn("[pond] tags.json flush failed", err),
+      );
+    });
   });
 }
 
@@ -518,6 +565,7 @@ app.on("before-quit", async (event) => {
     log.warn("[pond] render-card window dispose failed", err);
   }
   disposeQueueWorkerHost();
+  killTrackedProcessTrees();
   closePreviewWindows();
   closeCombineImagesWindow();
   try {

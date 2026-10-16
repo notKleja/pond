@@ -75,7 +75,8 @@ export function handleDeepLink(
     }
     log.info("[pond deep-link] route", route);
     const target = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-    if (!target) {
+    // A window that is still loading cannot receive IPC; did-finish-load consumes the route.
+    if (!target || target.webContents.isLoading()) {
       pendingDeepLink = route;
       return "library";
     }
@@ -87,4 +88,28 @@ export function handleDeepLink(
   } catch (err) {
     log.warn("[pond deep-link] parse failed", url, err);
   }
+}
+
+type SecondInstanceDeps = {
+  handleDeepLink: (
+    url: string,
+    mainWindow: BrowserWindow | null,
+  ) => "library" | undefined;
+  getMainWindow: () => BrowserWindow | null;
+  openLibraryWindow: () => void | Promise<void>;
+};
+
+/** A second launch either carries a pond:// link or only asks to be shown. */
+export function handleSecondInstance(
+  argv: readonly string[],
+  deps: SecondInstanceDeps,
+): void {
+  const url = deepLinkArg(argv);
+  if (url) {
+    const destination = deps.handleDeepLink(url, deps.getMainWindow());
+    if (destination === "library") void deps.openLibraryWindow();
+    return;
+  }
+  // openLibraryWindow also recreates a window the user closed.
+  void deps.openLibraryWindow();
 }
