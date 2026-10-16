@@ -6,6 +6,9 @@ const CMD_META_CHARS = /([()\][%!^"`<>&|;, *?])/g;
 /**
  * Quotes one argument for cmd.exe. Batch shims re-parse `%*`, so the escaping
  * runs once per parse. Characters cmd.exe would still expand are rejected.
+ * Keep in sync with apps/desktop/src/main/core/agent/cli-runtime.ts: this
+ * package is published on its own, so the helper cannot be shared without a
+ * new cross-package dependency.
  */
 export function quoteCmdArg(arg: string, passes = 2): string {
   if (/[\r\n%!]/.test(arg) || arg.includes("\0"))

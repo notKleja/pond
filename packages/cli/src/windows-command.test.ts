@@ -8,7 +8,23 @@ import {
   windowsInvocation,
 } from "./windows-command";
 
+/** Keep identical to the table in packages/cli/src/windows-command.test.ts and apps/desktop/src/main/core/agent/cli-runtime.test.ts. */
+const QUOTE_FIXTURES: Array<[string, number, string]> = [
+  ["--print", 1, '^"--print^"'],
+  ["with space", 2, '^^^"with^^^ space^^^"'],
+  ["a & b", 1, '^"a^ ^&^ b^"'],
+  [String.raw`{"k":"v"}`, 1, String.raw`^"{\^"k\^":\^"v\^"}^"`],
+  ["trailing\\", 1, String.raw`^"trailing\\^"`],
+];
+
 describe("quoteCmdArg", () => {
+  it.each(QUOTE_FIXTURES)(
+    "quotes %j with %i pass(es) like the desktop app",
+    (arg, passes, expected) => {
+      expect(quoteCmdArg(arg, passes)).toBe(expected);
+    },
+  );
+
   it("quotes the Cursor JSON argument and escapes shell metacharacters", () => {
     expect(quoteCmdArg('{"name":"pond"}', 1)).toBe(
       '^"{\\^"name\\^":\\^"pond\\^"}^"',
