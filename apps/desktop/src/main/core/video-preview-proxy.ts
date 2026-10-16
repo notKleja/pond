@@ -4,7 +4,7 @@ import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import log from "electron-log/main.js";
 import { resolvePondSavePath } from "../ipc/helpers";
-import { killProcessTree } from "../lib/process-tree";
+import { killProcessTree, trackChildProcess } from "../lib/process-tree";
 import { libraryRoot } from "../paths";
 import { binariesAvailable } from "./refresh/binaries";
 
@@ -140,6 +140,7 @@ function runFfmpeg(path: string, args: string[]): Promise<void> {
       stdio: ["ignore", "ignore", "pipe"],
       windowsHide: true,
     });
+    trackChildProcess(child);
     let stderr = "";
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = `${stderr}${chunk.toString("utf8")}`.slice(-2_000);

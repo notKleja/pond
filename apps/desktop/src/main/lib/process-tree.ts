@@ -2,6 +2,10 @@ import { type ChildProcess, spawn } from "node:child_process";
 
 type KillableProcess = Pick<ChildProcess, "pid" | "kill">;
 
+type TrackableProcess = KillableProcess & {
+  once(event: "close", listener: () => void): void;
+};
+
 type ProcessTreeKillDeps = {
   platform?: NodeJS.Platform;
   spawnTaskkill?: (args: string[]) => void;
@@ -37,4 +41,25 @@ export function killProcessTree(
     return;
   }
   child.kill(signal);
+}
+
+const tracked = new Set<KillableProcess>();
+
+/**
+ * Remember a running child on Windows, which has no parent-death kill, so quit
+ * can end children (and their children) that would otherwise outlive Pond and
+ * lock the install directory.
+ */
+export function trackChildProcess(
+  child: TrackableProcess,
+  platform: NodeJS.Platform = process.platform,
+) {
+  if (platform !== "win32" || !child.pid) return;
+  tracked.add(child);
+  child.once("close", () => tracked.delete(child));
+}
+
+export function killTrackedProcessTrees(deps: ProcessTreeKillDeps = {}) {
+  for (const child of tracked) killProcessTree(child, "SIGKILL", deps);
+  tracked.clear();
 }

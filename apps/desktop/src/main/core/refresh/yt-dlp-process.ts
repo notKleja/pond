@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { killProcessTree } from "../../lib/process-tree";
+import { killProcessTree, trackChildProcess } from "../../lib/process-tree";
 
 export interface ProcOutcome {
   code: number;
@@ -27,6 +27,7 @@ export function runWithTimeout(
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
+    trackChildProcess(child);
     let stderr = "";
     let stdout = "";
     let settled = false;

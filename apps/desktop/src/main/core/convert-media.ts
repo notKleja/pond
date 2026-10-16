@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import sharp, { type Sharp } from "sharp";
 import type { ConversionPreset } from "../../shared/conversion-contracts";
-import { killProcessTree } from "../lib/process-tree";
+import { killProcessTree, trackChildProcess } from "../lib/process-tree";
 import { requireConversionCapability } from "./conversion-capabilities";
 import { copyExportFile, writeExportFile } from "./export-files";
 import { binariesAvailable } from "./refresh/binaries";
@@ -272,6 +272,7 @@ async function runFfmpeg(input: {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
+    trackChildProcess(process);
     let error = "";
     let progress = "";
     process.stdout.on("data", (chunk: Buffer) => {

@@ -1,6 +1,11 @@
 import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { killProcessTree } from "./process-tree";
+import {
+  killProcessTree,
+  killTrackedProcessTrees,
+  trackChildProcess,
+} from "./process-tree";
 
 function fakeChild(pid: number | undefined) {
   const signals: (NodeJS.Signals | number | undefined)[] = [];
@@ -47,5 +52,46 @@ describe("killProcessTree", () => {
         },
       }),
     ).not.toThrow();
+  });
+});
+
+describe("tracked children", () => {
+  class FakeChild extends EventEmitter {
+    constructor(readonly pid: number) {
+      super();
+    }
+    kill() {
+      return true;
+    }
+  }
+  const trackable = (pid: number) => new FakeChild(pid);
+
+  it("kills the trees of children still running at quit on windows", () => {
+    const running = trackable(11);
+    const finished = trackable(12);
+    trackChildProcess(running, "win32");
+    trackChildProcess(finished, "win32");
+    finished.emit("close");
+    const calls: string[][] = [];
+    killTrackedProcessTrees({
+      platform: "win32",
+      spawnTaskkill: (args) => calls.push(args),
+    });
+    expect(calls).toEqual([["/pid", "11", "/T", "/F"]]);
+    killTrackedProcessTrees({
+      platform: "win32",
+      spawnTaskkill: (args) => calls.push(args),
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("tracks nothing on other platforms", () => {
+    trackChildProcess(trackable(21), "linux");
+    const calls: string[][] = [];
+    killTrackedProcessTrees({
+      platform: "win32",
+      spawnTaskkill: (args) => calls.push(args),
+    });
+    expect(calls).toEqual([]);
   });
 });

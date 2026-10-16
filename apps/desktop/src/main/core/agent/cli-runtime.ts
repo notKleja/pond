@@ -14,7 +14,7 @@ import { delimiter, join, resolve } from "node:path";
 import which from "which";
 import { z } from "zod";
 import type { OkResult } from "../../../shared/query-contracts-shared";
-import { killProcessTree } from "../../lib/process-tree";
+import { killProcessTree, trackChildProcess } from "../../lib/process-tree";
 
 export type CliProvider = "codex" | "claude-code";
 
@@ -354,6 +354,7 @@ export async function runCli(input: {
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
     });
+    trackChildProcess(child);
     let stdout = "";
     let stderr = "";
     let bytes = 0;
