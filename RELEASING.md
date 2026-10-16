@@ -111,6 +111,8 @@ Artifacts land in `apps/desktop/dist/`. `dist:win` needs the Visual Studio C++ B
 
 To try a pull request without building it, download the unsigned test installers that [`package.yml`](.github/workflows/package.yml) attaches to each run (`Pond-windows-x64`, `Pond-macos`). They are kept for 7 days, are not notarized, and cannot auto-update.
 
+`dist:win` also needs network access to GitHub for the `ffmpeg-static` download at install. Its afterPack gate fails the pack when the native host, sharp, onnxruntime, ffmpeg, or the app icon is missing. `pnpm install` itself only warns when MSVC is absent.
+
 The root command builds the desktop once, then packages `out/**`. Desktop
 `dist:*` scripts consume an existing build and do not run Electron/Vite again.
 
@@ -154,5 +156,5 @@ Run these before announcing a release:
 
 - **Local packaging**: `pnpm dist:mac` signs with a Developer ID identity in your login keychain and skips notarization unless the Apple variables are set.
 - **Auto-update**: Requires the published `latest-mac.yml` (macOS) or `latest.yml` (Windows) from the release workflow. Dev builds skip the updater.
-- **Windows**: The x64 NSIS installer is per-user and installs to `%LOCALAPPDATA%\Programs\Pond`. Windows arm64 stays disabled until its native dependency set is verified on an arm64 runner.
+- **Windows**: The x64 NSIS installer is per-user and installs to `%LOCALAPPDATA%\Programs\Pond`. Its uninstaller removes the `pond` protocol, native messaging, and login registry entries but keeps the Library. Before publishing, install, update from the previous release, uninstall on a clean machine, and confirm `reg query HKCU\Software\Classes\pond` finds nothing. Windows arm64 stays disabled until its native dependency set is verified on an arm64 runner.
 - **Linux**: Builds remain disabled.
