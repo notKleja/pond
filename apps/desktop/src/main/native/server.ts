@@ -11,7 +11,7 @@ import { basename, dirname } from "node:path";
 import type { JsonValue } from "@pond/schema/json";
 import type { NativeMessage, NativeResponse } from "@pond/schema/native";
 import log from "electron-log/main.js";
-import { encodeFrame, tryDecodeFrame } from "./frame";
+import { encodeReplyFrame, tryDecodeFrame } from "./frame";
 import { nativeSocketPath } from "./paths";
 import { liveNativePorts } from "./ports";
 import { dispatchNative } from "./rpc";
@@ -35,7 +35,7 @@ const listenPaths = new WeakMap<Server, BoundSocket>();
 const openSockets = new WeakMap<Server, Set<Socket>>();
 
 function writeFrame(socket: Socket, value: NativeMessage): void {
-  socket.end(encodeFrame(value));
+  socket.end(encodeReplyFrame(value));
 }
 
 function handleConn(socket: Socket, dispatch: NativeDispatch): void {
