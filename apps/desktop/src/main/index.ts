@@ -221,7 +221,9 @@ app.whenReady().then(async () => {
   registerProtocol();
 
   if (wantsMcp) {
-    await ensureIngestToken();
+    await ensureIngestToken().catch((err) =>
+      log.error("[pond] ingest token init failed; MCP starts without one", err),
+    );
     const { startPondMcp } = await import("./core/agent/mcp");
     await startPondMcp();
     return;
