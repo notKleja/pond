@@ -85,7 +85,7 @@ describe("renameWithRetry", () => {
 });
 
 describe("ytDlpAsset", () => {
-  it.each([
+  const cases: Array<[NodeJS.Platform, string, string | undefined]> = [
     ["win32", "x64", "yt-dlp.exe"],
     ["win32", "arm64", "yt-dlp_arm64.exe"],
     ["win32", "ia32", undefined],
@@ -93,8 +93,9 @@ describe("ytDlpAsset", () => {
     ["darwin", "x64", "yt-dlp_macos"],
     ["linux", "x64", "yt-dlp_linux"],
     ["freebsd", "x64", undefined],
-  ])("%s %s -> %s", (platform, arch, expected) => {
-    expect(ytDlpAsset(platform as NodeJS.Platform, arch)).toBe(expected);
+  ];
+  it.each(cases)("%s %s -> %s", (platform, arch, expected) => {
+    expect(ytDlpAsset(platform, arch)).toBe(expected);
   });
 });
 

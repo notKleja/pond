@@ -9,7 +9,7 @@ const PROTOCOL_COMMAND_KEY =
 /** Reads a registry key's default value, or null when it is absent. */
 export type RegistryReader = (key: string) => string | null;
 
-export const queryRegistryDefault: RegistryReader = (key) => {
+const queryRegistryDefault: RegistryReader = (key) => {
   const reg = join(
     process.env.SystemRoot ?? "C:\\Windows",
     "System32",

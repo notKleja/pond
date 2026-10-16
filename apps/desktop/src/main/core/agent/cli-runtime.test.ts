@@ -21,12 +21,15 @@ describe("prepareCodexRuntime credential isolation", () => {
   async function run(platform: NodeJS.Platform, code: string) {
     const directory = await mkdtemp(join(tmpdir(), "pond-codex-test-"));
     try {
-      const failure = await prepareCodexRuntime(
-        directory,
-        "default",
-        undefined,
-        { symlink: () => Promise.reject(errno(code)), platform },
-      ).catch((error: unknown) => error);
+      let failure: Error | undefined;
+      try {
+        await prepareCodexRuntime(directory, "default", undefined, {
+          symlink: () => Promise.reject(errno(code)),
+          platform,
+        });
+      } catch (error) {
+        if (error instanceof Error) failure = error;
+      }
       return { failure, entries: await readdir(join(directory, "codex-home")) };
     } finally {
       await rm(directory, { recursive: true, force: true });

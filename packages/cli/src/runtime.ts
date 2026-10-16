@@ -33,7 +33,7 @@ export function pondLaunchCommand(
   return { file: "gtk-launch", args: ["pond"] };
 }
 
-function launchPond(): { failure: () => Error | undefined } {
+function launchPond() {
   const command = pondLaunchCommand();
   const child = spawn(command.file, command.args, {
     detached: true,
