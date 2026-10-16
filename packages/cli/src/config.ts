@@ -11,9 +11,18 @@ const ConfigSchema = z.object({
 
 export type PondCliConfig = z.infer<typeof ConfigSchema>;
 
-export function configPath(env = process.env): string {
+export function configPath(
+  env = process.env,
+  platform = process.platform,
+): string {
   if (env.POND_CONFIG) return env.POND_CONFIG;
-  if (process.platform === "darwin")
+  if (platform === "win32")
+    return join(
+      env.APPDATA ?? join(homedir(), "AppData", "Roaming"),
+      "Pond",
+      "cli.json",
+    );
+  if (platform === "darwin")
     return join(
       homedir(),
       "Library",

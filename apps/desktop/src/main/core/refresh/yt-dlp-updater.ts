@@ -12,6 +12,7 @@ import {
 import { join } from "node:path";
 import log from "electron-log/main.js";
 import { z } from "zod";
+import { killProcessTree } from "../../lib/process-tree";
 import {
   invalidateBinariesCache,
   userBinDir,
@@ -27,6 +28,9 @@ const ReleaseSchema = z.object({
 });
 
 const SMOKE_TIMEOUT_MS = 20_000;
+const RENAME_ATTEMPTS = 5;
+/** Windows briefly locks a fresh exe while Defender scans it or a job still runs it. */
+const RETRYABLE_RENAME_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
 
 const ASSET_BY_PLATFORM = new Map<string, string>(
   Object.entries({
@@ -104,7 +108,16 @@ async function runUpdate(force: boolean): Promise<void> {
     }
 
     if (existsSync(active)) await rotateToPrevious(dir, active, previous);
-    await rename(tmp, active);
+    try {
+      await renameWithRetry(tmp, active);
+    } catch (err) {
+      await rm(tmp, { force: true });
+      if (!existsSync(active) && existsSync(previous)) {
+        await renameWithRetry(previous, active);
+        invalidateBinariesCache();
+      }
+      throw err;
+    }
     await writeFile(join(dir, VERSION_FILE), tag, "utf8");
     invalidateBinariesCache();
     await markChecked(dir);
@@ -119,15 +132,25 @@ async function healthCheckAndRollback(
   active: string,
   previous: string,
 ): Promise<void> {
-  if (!existsSync(active)) return;
+  if (!existsSync(active)) {
+    if (existsSync(previous)) await restorePrevious(dir, active, previous);
+    return;
+  }
   if (await smokeTest(active)) return;
   if (!existsSync(previous)) {
     log.warn("[pond yt-dlp-update] active binary failed --version, no backup");
     return;
   }
+  await restorePrevious(dir, active, previous);
+}
 
+async function restorePrevious(
+  dir: string,
+  active: string,
+  previous: string,
+): Promise<void> {
   await rm(active, { force: true });
-  await rename(previous, active);
+  await renameWithRetry(previous, active);
 
   const prevVersion = await readText(join(dir, VERSION_PREVIOUS_FILE));
   if (prevVersion) {
@@ -150,11 +173,41 @@ async function rotateToPrevious(
 ): Promise<void> {
   const currentVersion = await readText(join(dir, VERSION_FILE));
   await rm(previous, { force: true });
-  await rename(active, previous);
+  await renameWithRetry(active, previous);
   if (currentVersion) {
     await writeFile(join(dir, VERSION_PREVIOUS_FILE), currentVersion, "utf8");
   } else {
     await rm(join(dir, VERSION_PREVIOUS_FILE), { force: true });
+  }
+}
+
+export async function renameWithRetry(
+  from: string,
+  to: string,
+  deps: {
+    rename?: (from: string, to: string) => Promise<void>;
+    platform?: NodeJS.Platform;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<void> {
+  const {
+    rename: move = rename,
+    platform = process.platform,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  } = deps;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await move(from, to);
+    } catch (err) {
+      const code = z.object({ code: z.string() }).safeParse(err).data?.code;
+      const retry =
+        platform === "win32" &&
+        attempt < RENAME_ATTEMPTS &&
+        code !== undefined &&
+        RETRYABLE_RENAME_CODES.has(code);
+      if (!retry) throw err;
+      await sleep(Math.min(500, 100 * attempt));
+    }
   }
 }
 
@@ -214,10 +267,11 @@ function smokeTest(binaryPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const child = spawn(binaryPath, ["--version"], {
       stdio: ["ignore", "ignore", "ignore"],
+      windowsHide: true,
     });
     const timer = setTimeout(() => {
       try {
-        child.kill("SIGKILL");
+        killProcessTree(child, "SIGKILL");
       } catch {}
       resolve(false);
     }, SMOKE_TIMEOUT_MS);

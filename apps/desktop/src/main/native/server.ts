@@ -97,6 +97,10 @@ function bindPath(server: Server, path: string): void {
   listenPaths.set(server, { path, ino, restore, watcher, restoring: false });
 }
 
+function isNamedPipe(path: string): boolean {
+  return path.startsWith("\\\\.\\pipe\\");
+}
+
 /** Recreate the path after Node's unix close() unlinks it, including when an older process exits. */
 function restoreSocket(server: Server): void {
   const bound = listenPaths.get(server);
@@ -125,13 +129,16 @@ function restoreSocket(server: Server): void {
 export async function startNativeServer(
   opts: NativeServerOpts = {},
 ): Promise<Server> {
-  const path = opts.path ?? nativeSocketPath();
+  const path = opts.path ?? (await nativeSocketPath());
   const dispatch =
     opts.dispatch ?? ((raw) => dispatchNative(raw, liveNativePorts()));
-  await mkdir(dirname(path), { recursive: true });
-  try {
-    unlinkSync(path);
-  } catch {}
+  const namedPipe = isNamedPipe(path);
+  if (!namedPipe) {
+    await mkdir(dirname(path), { recursive: true });
+    try {
+      unlinkSync(path);
+    } catch {}
+  }
 
   const sockets = new Set<Socket>();
   const server = createServer((socket) => {
@@ -144,8 +151,10 @@ export async function startNativeServer(
     server.once("error", reject);
     server.listen(path, () => resolve());
   });
-  await chmod(path, 0o600);
-  bindPath(server, path);
+  if (!namedPipe) {
+    await chmod(path, 0o600);
+    bindPath(server, path);
+  }
   log.info("[pond native] listening", path);
   return server;
 }

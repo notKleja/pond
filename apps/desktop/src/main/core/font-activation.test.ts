@@ -17,6 +17,7 @@ it("installs a font into the Pond fonts directory and removes it", async () => {
   const activated = await activateFont({
     sourcePath: source,
     saveId: "save-1",
+    platform: "linux",
     fontsDir,
   });
   if (!activated.ok) throw new Error(activated.error);
@@ -24,6 +25,7 @@ it("installs a font into the Pond fonts directory and removes it", async () => {
   expect(await readFile(activated.path, "utf8")).toBe("font");
   const deactivated = await deactivateFont({
     installedPath: activated.path,
+    platform: "linux",
     fontsDir,
   });
   expect(deactivated.ok).toBe(true);
@@ -69,8 +71,78 @@ it("refuses to delete a file outside the Pond fonts directory", async () => {
   await writeFile(outside, "keep");
   const result = await deactivateFont({
     installedPath: outside,
+    platform: "linux",
     fontsDir: join(root, "Fonts"),
   });
   expect(result.ok).toBe(false);
   expect(await readFile(outside, "utf8")).toBe("keep");
+});
+
+const FONTS_KEY =
+  "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts";
+
+it("installs per-user Windows fonts in the Fonts root and registers them", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pond-fonts-"));
+  const source = join(root, "Display.otf");
+  await writeFile(source, "font");
+  const fontsDir = join(root, "Fonts");
+  const registry: string[][] = [];
+  const runRegistry = async (args: string[]) => {
+    registry.push(args);
+  };
+  const activated = await activateFont({
+    sourcePath: source,
+    saveId: "save-1",
+    fontsDir,
+    platform: "win32",
+    runRegistry,
+  });
+  if (!activated.ok) throw new Error(activated.error);
+  expect(activated.path).toBe(join(fontsDir, "save-1.otf"));
+  expect(registry).toEqual([
+    [
+      "add",
+      FONTS_KEY,
+      "/v",
+      "Pond save-1 (OpenType)",
+      "/t",
+      "REG_SZ",
+      "/d",
+      activated.path,
+      "/f",
+    ],
+  ]);
+
+  registry.length = 0;
+  const deactivated = await deactivateFont({
+    installedPath: activated.path.toUpperCase(),
+    fontsDir,
+    platform: "win32",
+    runRegistry,
+  });
+  expect(deactivated.ok).toBe(true);
+  expect(registry[0]?.slice(0, 4)).toEqual([
+    "delete",
+    FONTS_KEY,
+    "/v",
+    "Pond SAVE-1 (OpenType)",
+  ]);
+});
+
+it("removes the copied Windows font when registration fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pond-fonts-"));
+  const source = join(root, "Display.ttf");
+  await writeFile(source, "font");
+  const fontsDir = join(root, "Fonts");
+  const result = await activateFont({
+    sourcePath: source,
+    saveId: "save-1",
+    fontsDir,
+    platform: "win32",
+    async runRegistry() {
+      throw new Error("reg failed");
+    },
+  });
+  expect(result).toEqual({ ok: false, error: "reg failed" });
+  await expect(readFile(join(fontsDir, "save-1.ttf"))).rejects.toThrow();
 });

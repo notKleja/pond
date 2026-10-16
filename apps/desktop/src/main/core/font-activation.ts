@@ -1,22 +1,70 @@
+import { execFile } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import { copyFile, mkdir, rm } from "node:fs/promises";
-import { extname, join, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
+import { promisify } from "node:util";
 import type { OkResult } from "@shared/query-contracts-shared";
 import type Database from "better-sqlite3";
 import { readBundleJson, writeBundleJson } from "../lib/library-config";
 import { saveDir } from "../paths";
 
-export async function activateFont(input: {
-  sourcePath: string;
-  saveId: string;
-  fontsDir: string;
-}): Promise<OkResult<{ path: string }>> {
-  const pondDir = join(input.fontsDir, "Pond");
+const execFileAsync = promisify(execFile);
+
+const WINDOWS_FONTS_KEY =
+  "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts";
+
+type FontPlatformDeps = {
+  platform?: NodeJS.Platform;
+  /** Runs reg.exe; injected so tests never touch the real registry. */
+  runRegistry?: (args: string[]) => Promise<void>;
+};
+
+async function runRegistry(args: string[]): Promise<void> {
+  await execFileAsync("reg.exe", args, { windowsHide: true, timeout: 10_000 });
+}
+
+/** Windows lists per-user fonts by registry value; the name only has to be unique. */
+function windowsFontValueName(installedPath: string): string {
+  const extension = extname(installedPath);
+  const kind = extension.toLowerCase() === ".otf" ? "OpenType" : "TrueType";
+  return `Pond ${basename(installedPath, extension)} (${kind})`;
+}
+
+export async function activateFont(
+  input: {
+    sourcePath: string;
+    saveId: string;
+    fontsDir: string;
+  } & FontPlatformDeps,
+): Promise<OkResult<{ path: string }>> {
+  const { platform = process.platform, runRegistry: reg = runRegistry } = input;
+  // Per-user Windows fonts are only enumerated from the Fonts root.
+  const pondDir =
+    platform === "win32" ? input.fontsDir : join(input.fontsDir, "Pond");
   const extension = extname(input.sourcePath) || ".ttf";
   const dest = join(pondDir, `${input.saveId}${extension}`);
   try {
     await mkdir(pondDir, { recursive: true });
     await copyFile(input.sourcePath, dest);
+    if (platform === "win32") {
+      // Windows loads per-user fonts at sign-in, so the font appears after a restart or sign-in.
+      try {
+        await reg([
+          "add",
+          WINDOWS_FONTS_KEY,
+          "/v",
+          windowsFontValueName(dest),
+          "/t",
+          "REG_SZ",
+          "/d",
+          dest,
+          "/f",
+        ]);
+      } catch (error) {
+        await rm(dest, { force: true });
+        throw error;
+      }
+    }
     return { ok: true, path: dest };
   } catch (error) {
     return {
@@ -26,16 +74,38 @@ export async function activateFont(input: {
   }
 }
 
-export async function deactivateFont(input: {
-  installedPath: string;
-  fontsDir: string;
-}): Promise<OkResult> {
-  const pondDir = resolve(join(input.fontsDir, "Pond"));
+export async function deactivateFont(
+  input: {
+    installedPath: string;
+    fontsDir: string;
+  } & FontPlatformDeps,
+): Promise<OkResult> {
+  const { platform = process.platform, runRegistry: reg = runRegistry } = input;
+  // Windows paths are case-insensitive.
+  const normalize = (path: string) =>
+    platform === "win32" ? path.toLowerCase() : path;
   const target = resolve(input.installedPath);
-  if (target === pondDir || !target.startsWith(`${pondDir}${sep}`))
-    return { ok: false, error: "outside_pond_fonts" };
+  if (platform === "win32") {
+    if (normalize(dirname(target)) !== normalize(resolve(input.fontsDir)))
+      return { ok: false, error: "outside_pond_fonts" };
+  } else {
+    const pondDir = resolve(join(input.fontsDir, "Pond"));
+    if (target === pondDir || !target.startsWith(`${pondDir}${sep}`))
+      return { ok: false, error: "outside_pond_fonts" };
+  }
   try {
+    // Windows refuses to delete a font that is in use; keep the registry entry then.
     await rm(target, { force: true });
+    if (platform === "win32") {
+      // A missing value only means the font was never registered.
+      await reg([
+        "delete",
+        WINDOWS_FONTS_KEY,
+        "/v",
+        windowsFontValueName(target),
+        "/f",
+      ]).catch(() => {});
+    }
     return { ok: true };
   } catch (error) {
     return {

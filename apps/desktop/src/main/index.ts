@@ -47,7 +47,11 @@ import {
   registerYtDlpUpdateCron,
 } from "./crons";
 import { getDb } from "./db";
-import { handleDeepLink } from "./deep-link";
+import {
+  deepLinkArg,
+  handleDeepLink,
+  shouldOpenInitialWindow,
+} from "./deep-link";
 import { registerIpc } from "./ipc";
 import { waitForLibraryLocationChanges } from "./ipc/queries/library-locations";
 import { ensureIngestToken } from "./keychain";
@@ -61,7 +65,7 @@ import { writeNativeHostManifests } from "./native/manifests";
 import { startNativeServer, stopNativeServer } from "./native/server";
 import { libraryRoot, type PondPaths, resolvePaths } from "./paths";
 import { registerProtocol, registerScheme } from "./protocol";
-import { runtimeControls } from "./runtime";
+import { LOGIN_LAUNCH_ARG, runtimeControls } from "./runtime";
 import { configureSessionDefaults } from "./session-config";
 import {
   acquireSingleInstanceLock,
@@ -115,6 +119,8 @@ if (process.platform === "darwin") {
   });
 }
 
+if (process.platform === "win32") app.setAppUserModelId("so.pond.desktop");
+
 log.initialize();
 log.info("[pond] main starting", {
   version: app.getVersion(),
@@ -122,6 +128,7 @@ log.info("[pond] main starting", {
 });
 
 const wantsMcp = process.argv.includes("--mcp");
+const initialDeepLink = deepLinkArg(process.argv);
 
 let nativeServer: NetServer | null = null;
 let stopMediaWarmer: (() => void) | null = null;
@@ -179,7 +186,7 @@ let quitPreparing = false;
 app.on("second-instance", (_event, argv) => {
   /** Showing a window while quitting cancels the quit, and this instance would keep the lock. */
   if (quitPreparing) return;
-  const url = argv.find((a) => a.startsWith("pond://"));
+  const url = deepLinkArg(argv);
   if (url) {
     const destination = handleDeepLink(url, getMainWindow());
     if (destination === "library") void openLibraryWindow();
@@ -205,6 +212,9 @@ app.whenReady().then(async () => {
   const paths = await openActiveLibrary();
   if (!paths) return;
   log.info("[pond] paths", paths);
+  const initialDestination = initialDeepLink
+    ? handleDeepLink(initialDeepLink, getMainWindow())
+    : undefined;
 
   configureSessionDefaults();
 
@@ -242,8 +252,10 @@ app.whenReady().then(async () => {
       .catch(() => false),
   );
   const launchedHidden =
-    wantsLaunchHidden || loginItem.wasOpenedAtLogin === true;
-  if (!launchedHidden) {
+    wantsLaunchHidden ||
+    loginItem.wasOpenedAtLogin === true ||
+    (process.platform === "win32" && process.argv.includes(LOGIN_LAUNCH_ARG));
+  if (shouldOpenInitialWindow(launchedHidden, initialDestination)) {
     await createWindow();
   }
   watchMainThreadStalls();
@@ -310,7 +322,7 @@ async function postLaunchInit(): Promise<void> {
   try {
     if (!process.env.POND_SANDBOX) {
       nativeServer = await startNativeServer();
-      writeNativeHostManifests();
+      await writeNativeHostManifests();
     }
   } catch (err) {
     log.error("[pond] native host failed to start", err);
