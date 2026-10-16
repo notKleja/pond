@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -7,6 +7,7 @@ import {
   activateFont,
   backfillFontActivationIndex,
   deactivateFont,
+  pondFontsDir,
 } from "./font-activation";
 
 it("installs a font into the Pond fonts directory and removes it", async () => {
@@ -145,4 +146,54 @@ it("removes the copied Windows font when registration fails", async () => {
   });
   expect(result).toEqual({ ok: false, error: "reg failed" });
   await expect(readFile(join(fontsDir, "save-1.ttf"))).rejects.toThrow();
+});
+
+it("reports that Windows fonts need a sign-in and macOS fonts do not", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pond-fonts-"));
+  const source = join(root, "Display.ttf");
+  await writeFile(source, "font");
+  const win = await activateFont({
+    sourcePath: source,
+    saveId: "save-1",
+    fontsDir: join(root, "Fonts"),
+    platform: "win32",
+    async runRegistry() {},
+  });
+  expect(win).toMatchObject({ ok: true, requiresSignIn: true });
+  const mac = await activateFont({
+    sourcePath: source,
+    saveId: "save-1",
+    fontsDir: join(root, "MacFonts"),
+    platform: "darwin",
+  });
+  expect(mac.ok && "requiresSignIn" in mac).toBe(false);
+});
+
+it("keeps the Windows registration when the font file cannot be removed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pond-fonts-"));
+  const fontsDir = join(root, "Fonts");
+  // A non-empty directory stands in for a file another app holds open.
+  const held = join(fontsDir, "save-1.ttf");
+  await mkdir(held, { recursive: true });
+  await writeFile(join(held, "child"), "x");
+  const registry: string[][] = [];
+  const result = await deactivateFont({
+    installedPath: held,
+    fontsDir,
+    platform: "win32",
+    async runRegistry(args) {
+      registry.push(args);
+    },
+  });
+  expect(result.ok).toBe(false);
+  expect(registry).toEqual([]);
+});
+
+it("places Windows fonts under LOCALAPPDATA when it is set", () => {
+  expect(pondFontsDir("C:\\Users\\a", "win32", "D:\\Local")).toBe(
+    join("D:\\Local", "Microsoft", "Windows", "Fonts"),
+  );
+  expect(pondFontsDir("C:\\Users\\a", "win32", "")).toBe(
+    join("C:\\Users\\a", "AppData", "Local", "Microsoft", "Windows", "Fonts"),
+  );
 });

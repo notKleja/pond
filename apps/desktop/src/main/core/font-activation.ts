@@ -19,8 +19,16 @@ type FontPlatformDeps = {
   runRegistry?: (args: string[]) => Promise<void>;
 };
 
+/** An absolute path keeps a planted reg.exe earlier on PATH from running. */
+function regExecutable(): string {
+  return join(process.env.SystemRoot ?? "C:\\Windows", "System32", "reg.exe");
+}
+
 async function runRegistry(args: string[]): Promise<void> {
-  await execFileAsync("reg.exe", args, { windowsHide: true, timeout: 10_000 });
+  await execFileAsync(regExecutable(), args, {
+    windowsHide: true,
+    timeout: 10_000,
+  });
 }
 
 /** Windows lists per-user fonts by registry value; the name only has to be unique. */
@@ -36,7 +44,7 @@ export async function activateFont(
     saveId: string;
     fontsDir: string;
   } & FontPlatformDeps,
-): Promise<OkResult<{ path: string }>> {
+): Promise<OkResult<{ path: string; requiresSignIn?: boolean }>> {
   const { platform = process.platform, runRegistry: reg = runRegistry } = input;
   // Per-user Windows fonts are only enumerated from the Fonts root.
   const pondDir =
@@ -47,7 +55,6 @@ export async function activateFont(
     await mkdir(pondDir, { recursive: true });
     await copyFile(input.sourcePath, dest);
     if (platform === "win32") {
-      // Windows loads per-user fonts at sign-in, so the font appears after a restart or sign-in.
       try {
         await reg([
           "add",
@@ -65,7 +72,10 @@ export async function activateFont(
         throw error;
       }
     }
-    return { ok: true, path: dest };
+    // Windows loads per-user fonts at sign-in, so other apps see the font after that.
+    return platform === "win32"
+      ? { ok: true, path: dest, requiresSignIn: true }
+      : { ok: true, path: dest };
   } catch (error) {
     return {
       ok: false,
@@ -94,7 +104,7 @@ export async function deactivateFont(
       return { ok: false, error: "outside_pond_fonts" };
   }
   try {
-    // Windows refuses to delete a font that is in use; keep the registry entry then.
+    // Remove the file first: if an app holds it, the registration stays intact.
     await rm(target, { force: true });
     if (platform === "win32") {
       // A missing value only means the font was never registered.
@@ -118,10 +128,16 @@ export async function deactivateFont(
 export function pondFontsDir(
   home: string,
   platform = process.platform,
+  localAppData = process.env.LOCALAPPDATA,
 ): string {
   if (platform === "darwin") return join(home, "Library", "Fonts");
   if (platform === "win32")
-    return join(home, "AppData", "Local", "Microsoft", "Windows", "Fonts");
+    return join(
+      localAppData || join(home, "AppData", "Local"),
+      "Microsoft",
+      "Windows",
+      "Fonts",
+    );
   return join(home, ".local", "share", "fonts");
 }
 
