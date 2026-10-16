@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import type { Command } from "commander";
 import { z } from "zod";
 import { resolveWindowsCommand, windowsInvocation } from "../windows-command";
+import { findPondExecutable } from "../windows-install";
 import { action, commandContext } from "./shared";
 
 export function registerIntegrationCommands(
@@ -18,7 +19,7 @@ export function registerIntegrationCommands(
       process.platform === "darwin"
         ? "/Applications/Pond.app/Contents/MacOS/Pond"
         : process.platform === "win32"
-          ? join(process.env.LOCALAPPDATA ?? "", "Programs", "Pond", "Pond.exe")
+          ? (findPondExecutable() ?? "")
           : "pond-desktop";
     await access(executable).catch(() => {
       if (process.platform !== "linux")

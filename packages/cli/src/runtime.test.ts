@@ -2,16 +2,17 @@ import { describe, expect, it } from "vitest";
 import { pondLaunchCommand } from "./runtime";
 
 describe("pondLaunchCommand", () => {
-  it("starts the per-user Windows install directly", () => {
-    const command = pondLaunchCommand("win32", {
-      LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local",
-    });
-    expect(command.file).toMatch(/Programs[\\/]Pond[\\/]Pond\.exe$/);
-    expect(command.args).toEqual([]);
+  it("starts the registered Windows install, wherever it lives", () => {
+    const command = pondLaunchCommand(
+      "win32",
+      { LOCALAPPDATA: "C:/Users/a/AppData/Local" },
+      () => "D:/Apps/Pond/Pond.exe",
+    );
+    expect(command).toEqual({ file: "D:/Apps/Pond/Pond.exe", args: [] });
   });
 
-  it("falls back to the pond:// handler without LOCALAPPDATA", () => {
-    expect(pondLaunchCommand("win32", {})).toEqual({
+  it("asks Windows to open the pond:// link when no install is found", () => {
+    expect(pondLaunchCommand("win32", {}, () => null)).toEqual({
       file: "explorer.exe",
       args: ["pond://library"],
     });

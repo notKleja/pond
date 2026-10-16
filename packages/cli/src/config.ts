@@ -11,9 +11,18 @@ const ConfigSchema = z.object({
 
 export type PondCliConfig = z.infer<typeof ConfigSchema>;
 
+/** Earlier versions kept the Windows file at the XDG location. */
+function xdgConfigPath(env: NodeJS.ProcessEnv): string {
+  return join(
+    env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
+    "pond",
+    "cli.json",
+  );
+}
+
 export function configPath(
-  env = process.env,
-  platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
 ): string {
   if (env.POND_CONFIG) return env.POND_CONFIG;
   if (platform === "win32")
@@ -30,21 +39,36 @@ export function configPath(
       "Pond",
       "cli.json",
     );
-  return join(
-    env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
-    "pond",
-    "cli.json",
-  );
+  return xdgConfigPath(env);
 }
 
-export async function readConfig(path = configPath()): Promise<PondCliConfig> {
-  try {
-    return ConfigSchema.parse(JSON.parse(await readFile(path, "utf8")));
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return {};
-    throw error;
+/** Files to read, newest location first. Windows still reads the pre-%APPDATA% file. */
+export function configReadPaths(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  const current = configPath(env, platform);
+  return platform === "win32" && !env.POND_CONFIG
+    ? [current, xdgConfigPath(env)]
+    : [current];
+}
+
+export async function readConfig(
+  path?: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): Promise<PondCliConfig> {
+  for (const candidate of path ? [path] : configReadPaths(env, platform)) {
+    try {
+      return ConfigSchema.parse(JSON.parse(await readFile(candidate, "utf8")));
+    } catch (error) {
+      if (
+        !(error instanceof Error && "code" in error && error.code === "ENOENT")
+      )
+        throw error;
+    }
   }
+  return {};
 }
 
 export async function writeConfig(
