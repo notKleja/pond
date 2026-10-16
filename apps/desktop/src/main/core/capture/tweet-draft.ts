@@ -21,6 +21,7 @@ export interface TweetDraft {
   media: CaptureMedia[];
   metrics?: CaptureMetrics;
   quoted?: TweetDraft;
+  replyTo?: TweetDraft;
   card?: CaptureLinkCard;
   isReply?: boolean;
   replyingTo?: string;
@@ -33,6 +34,10 @@ export function captureFromTweetDraft(draft: TweetDraft, depth = 0): Capture {
   const quoted =
     draft.quoted && depth < QUOTE_DEPTH_CAP
       ? captureFromTweetDraft(draft.quoted, depth + 1)
+      : undefined;
+  const replyTo =
+    draft.replyTo && depth < QUOTE_DEPTH_CAP
+      ? captureFromTweetDraft(draft.replyTo, depth + 1)
       : undefined;
   const card = compactCard(draft.card);
   const metrics = compactMetrics(draft.metrics);
@@ -50,6 +55,7 @@ export function captureFromTweetDraft(draft: TweetDraft, depth = 0): Capture {
   if (draft.lang) capture.lang = draft.lang;
   if (metrics) capture.metrics = metrics;
   if (quoted) capture.quoted = quoted;
+  if (replyTo) capture.replyTo = replyTo;
   if (card) capture.card = card;
   if (draft.isReply) capture.isReply = true;
   if (draft.replyingTo) capture.replyingTo = draft.replyingTo;
@@ -115,6 +121,7 @@ export interface RichPostDraft {
   media: RichPostMedia[];
   metrics?: CaptureMetrics;
   quoted?: RichPostDraft;
+  replyTo?: RichPostDraft;
   card?: CaptureLinkCard;
   isReply?: boolean;
   replyingTo?: string;
@@ -139,6 +146,7 @@ export function draftFromRichPost(rich: RichPostDraft): TweetDraft {
   if (rich.publishedAt) draft.publishedAt = rich.publishedAt;
   if (rich.metrics) draft.metrics = rich.metrics;
   if (rich.quoted) draft.quoted = draftFromRichPost(rich.quoted);
+  if (rich.replyTo) draft.replyTo = draftFromRichPost(rich.replyTo);
   if (rich.card) draft.card = rich.card;
   if (rich.isReply) draft.isReply = true;
   if (rich.replyingTo) draft.replyingTo = rich.replyingTo;
@@ -230,6 +238,7 @@ const DomHarvestMetaSchema = z
     card: HarvestCardSchema,
     isReply: scrapedFlag,
     replyingTo: scrapedText,
+    replyTo: HarvestQuotedTweetSchema,
     conversationId: scrapedText,
   })
   .catch({});
@@ -269,6 +278,10 @@ export function draftFromDomHarvest(page: DomHarvestPage): TweetDraft {
   if (page.lang) draft.lang = page.lang;
   if (meta.quotedTweet) {
     draft.quoted = draftFromQuotedMeta(page.source, meta.quotedTweet);
+  }
+  if (meta.replyTo) {
+    draft.replyTo = draftFromQuotedMeta(page.source, meta.replyTo);
+    draft.isReply = true;
   }
   if (meta.card) draft.card = meta.card;
   if (meta.isReply === true) draft.isReply = true;

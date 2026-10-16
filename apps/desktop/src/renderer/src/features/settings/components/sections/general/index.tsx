@@ -35,9 +35,7 @@ export function CheckNowRow() {
         setMessage(`You're on the latest version (${info.version}).`);
         return;
       }
-      setMessage(
-        `Update ${result.version} is available and will download in the background.`,
-      );
+      setMessage(`Pond ${result.version} is available.`);
     } finally {
       setBusy(false);
     }

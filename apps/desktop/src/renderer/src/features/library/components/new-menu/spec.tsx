@@ -52,6 +52,7 @@ import {
   importEagle,
   importEaglePackage,
   importLegacyLibrary,
+  importMymind,
   importPageAssets,
   importPaths,
   importPondPackage,
@@ -193,6 +194,13 @@ export function buildNewMenuItems(
           icon: <IconGlobe />,
           keywords: "netscape chrome safari html bookmark file",
           onClick: () => void runNewAction(importBookmarks),
+        },
+        {
+          id: "mymind",
+          label: "Import mymind",
+          icon: <IconFolderImport />,
+          keywords: "mymind cards csv export migrate",
+          onClick: () => void runNewAction(importMymind),
         },
         {
           id: "page-assets",

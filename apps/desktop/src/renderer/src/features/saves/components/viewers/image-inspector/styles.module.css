@@ -17,6 +17,10 @@
   overflow: hidden;
   touch-action: none;
 
+  &[data-mode="crop"] {
+    cursor: crosshair;
+  }
+
   &[data-background="white"] {
     background: white;
   }

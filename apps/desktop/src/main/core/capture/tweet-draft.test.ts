@@ -107,4 +107,24 @@ describe("captureFromTweetDraft", () => {
     expect(capture.quoted).toBeUndefined();
     expect(capture.card).toBeUndefined();
   });
+
+  it("keeps the parent post on a reply", () => {
+    const capture = captureFromTweetDraft({
+      ...parentDraft,
+      quoted: undefined,
+      isReply: true,
+      replyingTo: "bob",
+      replyTo: {
+        source: "twitter",
+        id: "parent-post",
+        url: "https://x.com/bob/status/parent-post",
+        text: "the thing being answered",
+        author: { handle: "bob", name: "Bob" },
+        media: [],
+      },
+    });
+    expect(capture.replyTo?.description).toBe("the thing being answered");
+    expect(capture.replyTo?.author?.handle).toBe("bob");
+    expect(capture.replyTo?.id).toBe("parent-post");
+  });
 });

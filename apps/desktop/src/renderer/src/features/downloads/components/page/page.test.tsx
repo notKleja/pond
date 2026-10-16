@@ -290,6 +290,26 @@ it("selects a download row on click", async () => {
   expect(selectedRow?.hasAttribute("data-inspected")).toBe(false);
 });
 
+it("selects every download with Command-A while the table is focused", async () => {
+  await render();
+  const table = host.querySelector<HTMLElement>('[role="grid"]');
+  if (!table) throw new Error("Missing Downloads table");
+  table.focus();
+
+  await act(async () => {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "a",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+
+  expect(downloadsSelection.size()).toBe(3);
+});
+
 it("lists waiting and completed rows in the same table", async () => {
   setSaves([
     save("Z clip", "ingesting", "running"),
@@ -426,6 +446,159 @@ it("filters active, waiting, and failed work from the filter toolbar", async () 
   expect(host.querySelector('[title="Failed video"]')).not.toBeNull();
   expect(host.querySelector('[title="Running video"]')).toBeNull();
   expect(host.querySelector('[title="Waiting video"]')).toBeNull();
+});
+
+it("moves every unfinished download to Trash and leaves finished saves", async () => {
+  setSaves([
+    save("Running video", "ingesting", "running"),
+    save("Waiting video", "ingesting", "pending"),
+    save("Failed video", "failed", "dead"),
+    save("Finished video", "complete"),
+  ]);
+  query.mockImplementation(async (name: string) => {
+    if (name === "settings.getPrefs") return {};
+    if (name === "downloads.activity") return [];
+    if (name === "downloads.history") return { rows: [], nextCursor: null };
+    if (name === "pipeline.status") return { paused: false };
+    if (name === "pipeline.inflight") return [];
+    if (name === "downloads.ingestingOrFailed") {
+      return [
+        "Running video",
+        "Waiting video",
+        "Failed video",
+        "Older hidden failure",
+      ];
+    }
+    if (name === "saves.getMany") return [];
+    if (name === "downloads.clearUnfinished") {
+      return {
+        changed: 4,
+        ids: [
+          "Running video",
+          "Waiting video",
+          "Failed video",
+          "Older hidden failure",
+        ],
+      };
+    }
+    if (name === "feedback.emit") return { ok: true };
+    throw new Error(`Unexpected query: ${name}`);
+  });
+
+  await render();
+  await clickButton("Filter");
+  await clickButton("Status");
+  await clickFilterOption("Failed");
+  await clickButton("Clear Unfinished");
+
+  expect(query).toHaveBeenCalledWith("downloads.clearUnfinished", {});
+  expect(query).not.toHaveBeenCalledWith("saves.bulkEdit", expect.anything());
+  expect(savesStore.state.byId.get("Finished video")?.deletedAt).toBeNull();
+});
+
+it("prevents duplicate clear requests while moving downloads to Trash", async () => {
+  let finishTrash: (() => void) | undefined;
+  const trashFinished = new Promise<void>((resolve) => {
+    finishTrash = resolve;
+  });
+  query.mockImplementation(async (name: string) => {
+    if (name === "settings.getPrefs") return {};
+    if (name === "downloads.activity") return [];
+    if (name === "downloads.history") return { rows: [], nextCursor: null };
+    if (name === "pipeline.status") return { paused: false };
+    if (name === "pipeline.inflight") return [];
+    if (name === "downloads.ingestingOrFailed") return ["Running video"];
+    if (name === "saves.getMany") return [];
+    if (name === "downloads.clearUnfinished") {
+      await trashFinished;
+      return { changed: 1, ids: ["Running video"] };
+    }
+    if (name === "feedback.emit") return { ok: true };
+    throw new Error(`Unexpected query: ${name}`);
+  });
+
+  await render();
+  const button = [...document.querySelectorAll("button")].find(
+    (node) => node.textContent === "Clear Unfinished",
+  );
+  if (!button) throw new Error("Missing Clear Unfinished button");
+  await act(async () => button.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(button.hasAttribute("disabled")).toBe(true);
+  await act(async () => button.click());
+
+  expect(
+    query.mock.calls.filter(([name]) => name === "downloads.clearUnfinished"),
+  ).toHaveLength(1);
+  await act(async () => {
+    finishTrash?.();
+    await trashFinished;
+  });
+});
+
+it("ignores hydration rows captured before unfinished downloads were cleared", async () => {
+  let finishHydration: ((rows: Save[]) => void) | undefined;
+  const hydration = new Promise<Save[]>((resolve) => {
+    finishHydration = resolve;
+  });
+  setSaves([save("Running video", "ingesting", "running")]);
+  query.mockImplementation(async (name: string) => {
+    if (name === "settings.getPrefs") return {};
+    if (name === "downloads.activity") return [];
+    if (name === "downloads.history") return { rows: [], nextCursor: null };
+    if (name === "pipeline.status") return { paused: false };
+    if (name === "pipeline.inflight") return [];
+    if (name === "downloads.ingestingOrFailed") return ["Older failure"];
+    if (name === "saves.getMany") return hydration;
+    if (name === "downloads.clearUnfinished") {
+      return { changed: 2, ids: ["Running video", "Older failure"] };
+    }
+    if (name === "feedback.emit") return { ok: true };
+    throw new Error(`Unexpected query: ${name}`);
+  });
+
+  await render();
+  await clickButton("Clear Unfinished");
+  await act(async () => {
+    finishHydration?.([save("Older failure", "failed", "dead")]);
+    await hydration;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(host.querySelector('[title="Running video"]')).toBeNull();
+  expect(host.querySelector('[title="Older failure"]')).toBeNull();
+});
+
+it("ignores in-flight reloads captured before running downloads were cleared", async () => {
+  let finishReload: ((rows: Save[]) => void) | undefined;
+  const reload = new Promise<Save[]>((resolve) => {
+    finishReload = resolve;
+  });
+  setSaves([save("Running video", "ingesting", "running")]);
+  query.mockImplementation(async (name: string) => {
+    if (name === "settings.getPrefs") return {};
+    if (name === "downloads.activity") return [];
+    if (name === "downloads.history") return { rows: [], nextCursor: null };
+    if (name === "pipeline.status") return { paused: false };
+    if (name === "pipeline.inflight") return ["Running video"];
+    if (name === "downloads.ingestingOrFailed") return [];
+    if (name === "saves.getMany") return reload;
+    if (name === "downloads.clearUnfinished") {
+      return { changed: 1, ids: ["Running video"] };
+    }
+    if (name === "feedback.emit") return { ok: true };
+    throw new Error(`Unexpected query: ${name}`);
+  });
+
+  await render();
+  await clickButton("Clear Unfinished");
+  await act(async () => {
+    finishReload?.([save("Running video", "ingesting", "running")]);
+    await reload;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(host.querySelector('[title="Running video"]')).toBeNull();
 });
 
 it("bounds the initial render before the downloads table is measured", async () => {

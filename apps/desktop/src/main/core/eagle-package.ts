@@ -28,6 +28,7 @@ import type { Folder, Save } from "@pond/schema/db";
 import { saves } from "@pond/schema/db";
 import { isAuxiliaryKind, isThumbnailKind } from "@shared/save-file-names";
 import { and, eq, inArray } from "drizzle-orm";
+import sharp from "sharp";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { getDb } from "../db";
@@ -46,7 +47,10 @@ import {
 } from "./folders";
 import { runLibraryTransfer } from "./library-transfers";
 import { createManualSave, type ManualSaveInput } from "./manual-import";
-import { exportLibraryMedia } from "./storage/library-media-storage";
+import {
+  exportLibraryMedia,
+  readLibraryMedia,
+} from "./storage/library-media-storage";
 import {
   checkTransferCancellation,
   transferPhase,
@@ -881,7 +885,13 @@ async function exportDirectory(
         ? basename(originals[0].path)
         : safeSegment(item.save.id);
       const filename = uniqueName(`${primaryName}_thumbnail.png`, used);
-      await exportLibraryMedia(source, join(directory, filename));
+      const png = await sharp(await readLibraryMedia(source), { pages: 1 })
+        .png()
+        .toBuffer();
+      await writeFile(join(directory, filename), png, {
+        flag: "wx",
+        mode: 0o600,
+      });
       exported += 1;
     }
     const itemMetadata = eagleMetadata(item);

@@ -1,4 +1,4 @@
-import { IconBarsFilter, IconPencil, IconTrash } from "@pond/icons";
+import { IconBarsFilter, IconMerge, IconPencil, IconTrash } from "@pond/icons";
 import { Button, Chip, type MenuItemSpec } from "@pond/ui";
 import { FOLDER_SWATCHES } from "@/shared/lib/folder-icons";
 import { shortcutGlyphs } from "@/shared/lib/shortcuts";
@@ -10,6 +10,8 @@ export interface TagGroupMenuActions {
   onFilter: () => void;
   onRename: () => void;
   onChangeColor: (color: string | null) => void;
+  mergeTargets: string[];
+  onMerge: (group: string) => void;
   onRequestDelete: () => void;
 }
 
@@ -54,6 +56,16 @@ export function buildTagGroupMenuItems(a: TagGroupMenuActions): MenuItemSpec[] {
       icon: <IconPencil />,
       shortcut: shortcutGlyphs("tags.rename"),
       onClick: a.onRename,
+    },
+    {
+      type: "submenu",
+      label: "Merge Into",
+      icon: <IconMerge />,
+      disabled: a.mergeTargets.length === 0,
+      items: a.mergeTargets.map((group) => ({
+        label: group,
+        onClick: () => a.onMerge(group),
+      })),
     },
     {
       type: "custom",

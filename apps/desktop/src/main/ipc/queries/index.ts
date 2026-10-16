@@ -28,6 +28,7 @@ import { syncHistoryQueries } from "./sync-history";
 import { tagGroupsQueries } from "./tag-groups";
 import { tagsQueries } from "./tags";
 import { transferJobsQueries } from "./transfer-jobs";
+import { updateQueries } from "./updates";
 import { videoQueries } from "./video";
 import { watchesQueries } from "./watches";
 
@@ -35,6 +36,7 @@ type ContractHandlers = Required<QueryHandlerMap>;
 
 const queryRegistry = {
   ...transferJobsQueries,
+  ...updateQueries,
   ...bulkQueries,
   ...openWithQueries,
   ...conversionQueries,

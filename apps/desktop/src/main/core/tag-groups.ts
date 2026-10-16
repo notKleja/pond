@@ -14,12 +14,38 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { ulid } from "ulid";
 import type { Db } from "../db";
 import { getDb } from "../db";
-import { executeBatch, executeTransaction } from "./executor";
+import {
+  executeBatch,
+  executeTransaction,
+  withMutationScope,
+} from "./executor";
+import { recordBatchForUndo } from "./undo";
 
 interface TagGroupWithMembers extends TagGroup {
   tagIds: string[];
   tagNames: string[];
 }
+
+interface MergeGroupRuntime {
+  run<T>(operation: () => Promise<T>): Promise<T>;
+  getDb(): Promise<Db>;
+  commit(transactions: Transaction[]): Promise<void>;
+  recordUndo(transactions: Transaction[]): void;
+}
+
+interface GroupMergePlan {
+  transactions: Transaction[];
+  added: number;
+}
+
+const defaultMergeGroupRuntime: MergeGroupRuntime = {
+  run: withMutationScope,
+  getDb,
+  async commit(transactions) {
+    await executeBatch(transactions);
+  },
+  recordUndo: recordBatchForUndo,
+};
 
 async function groupByLowerName(
   db: Db,
@@ -230,6 +256,97 @@ export async function addTagsToGroup(
   if (txs.length === 0) return { ok: true, affected: 0 };
   await executeBatch(txs);
   return { ok: true, affected: txs.length };
+}
+
+export async function mergeGroup(
+  from: string,
+  to: string,
+  runtime: MergeGroupRuntime = defaultMergeGroupRuntime,
+): Promise<OkResult<{ affected: number }>> {
+  const sourceName = from.trim();
+  const targetName = to.trim();
+  if (!sourceName || !targetName) {
+    return { ok: false, error: "Enter a group name." };
+  }
+  return runtime.run(async () => {
+    const db = await runtime.getDb();
+    const source = await groupByLowerName(db, sourceName.toLowerCase());
+    const target = await groupByLowerName(db, targetName.toLowerCase());
+    if (!source || !target) return { ok: false, error: "Tag group not found." };
+    if (source.id === target.id) {
+      return {
+        ok: false,
+        error: "Choose a different tag group to merge into.",
+      };
+    }
+    const sourceMembers = await db
+      .select()
+      .from(tagGroupMembersTable)
+      .where(eq(tagGroupMembersTable.groupId, source.id))
+      .orderBy(asc(tagGroupMembersTable.sortOrder));
+    const targetMembers = await db
+      .select()
+      .from(tagGroupMembersTable)
+      .where(eq(tagGroupMembersTable.groupId, target.id));
+    const { transactions, added } = planGroupMergeTransactions({
+      source,
+      target,
+      sourceMembers,
+      targetMembers,
+    });
+    await runtime.commit(transactions);
+    runtime.recordUndo(transactions);
+    return { ok: true, affected: added };
+  });
+}
+
+export function planGroupMergeTransactions(input: {
+  source: TagGroup;
+  target: TagGroup;
+  sourceMembers: TagGroupMember[];
+  targetMembers: TagGroupMember[];
+}): GroupMergePlan {
+  const targetTagIds = new Set(
+    input.targetMembers.map((member) => member.tagId),
+  );
+  let nextOrder =
+    Math.max(-1, ...input.targetMembers.map((member) => member.sortOrder)) + 1;
+  const transactions: Transaction[] = [];
+  let added = 0;
+
+  for (const member of input.sourceMembers) {
+    if (!targetTagIds.has(member.tagId)) {
+      const data: NewTagGroupMember = {
+        tagId: member.tagId,
+        groupId: input.target.id,
+        sortOrder: nextOrder++,
+      };
+      transactions.push({
+        kind: "create",
+        model: "tag_group_member",
+        id: memberKey(data),
+        data,
+        meta: { actor: "user", actorReason: "tag-group-merge" },
+      });
+      added += 1;
+    }
+    transactions.push({
+      kind: "delete",
+      model: "tag_group_member",
+      id: memberKey(member),
+      before: member,
+      meta: { actor: "user", actorReason: "tag-group-merge" },
+    });
+  }
+  transactions.push({
+    kind: "delete",
+    model: "tag_group",
+    id: input.source.id,
+    before: input.source,
+    meta: { actor: "user", actorReason: "tag-group-merge" },
+  });
+
+  return { transactions, added };
 }
 
 export async function removeTagFromGroup(

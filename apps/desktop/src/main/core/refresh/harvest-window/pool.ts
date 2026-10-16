@@ -3,7 +3,7 @@ import type { ReportDownloadActivity } from "@shared/download-activity";
 import { BrowserWindow, session } from "electron";
 import { resolvePreload } from "../../../lib/resolve-preload";
 import { acquire, sourcePausedUntil } from "../../pipeline/rate-governor";
-import { PARTITION } from "./constants";
+import { browserUserAgent, PARTITION } from "./constants";
 
 export const GLOBAL_POOL_CAP = 3;
 
@@ -65,10 +65,7 @@ function queueFor(source: Source): Waiter[] {
 
 function createHiddenWindow(partition: string): BrowserWindow {
   const persistent = session.fromPartition(partition);
-  persistent.setUserAgent(
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 " +
-      "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-  );
+  persistent.setUserAgent(browserUserAgent());
 
   const win = new BrowserWindow({
     show: false,

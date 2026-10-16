@@ -157,12 +157,12 @@ it("returns OCR snippets from library grep", async () => {
   mock.fts.mockResolvedValue([
     {
       id: "save",
-      title: "",
-      description: "",
-      caption: "",
+      title: null,
+      description: null,
+      caption: null,
       ocr: "invoice 441",
-      transcript: "",
-      notes: "",
+      transcript: null,
+      notes: null,
     },
   ]);
   mock.admitted = [{ id: "save" }];

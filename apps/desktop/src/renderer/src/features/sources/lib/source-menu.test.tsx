@@ -101,6 +101,19 @@ function findItem(items: MenuItemSpec[], label: string): MenuItemSpec | null {
   return null;
 }
 
+function nextNotification(): Promise<{ title: string; description?: string }> {
+  return new Promise((resolve) => {
+    window.addEventListener(
+      "pond:notification",
+      (event) => {
+        if (!(event instanceof CustomEvent)) return;
+        resolve(event.detail);
+      },
+      { once: true },
+    );
+  });
+}
+
 beforeEach(() => {
   vi.stubGlobal("pond", {
     clearPendingSession: vi.fn(async () => undefined),
@@ -241,6 +254,98 @@ describe("buildSourceActionMenu", () => {
       ["Show Saved Items"],
       ["Fetch New Saves"],
     ]);
+  });
+
+  it("toggles likes for an X account and hides the action elsewhere", () => {
+    const row: AccountRow = {
+      id: "acc-twitter",
+      source: "twitter",
+      handle: "raphael",
+      label: null,
+      avatarUrl: null,
+      addedAt: "",
+      sync: {
+        lastSyncedAt: null,
+        lastError: null,
+        knownCount: 12,
+        syncLikes: false,
+      },
+      connected: true,
+      syncing: false,
+    };
+    const items = buildSourceActionMenu(accountMenuTarget(row, ready));
+    const likes = findItem(items, "Sync Likes");
+    expect(likes).toMatchObject({ type: "checkbox", checked: false });
+    expect(findItem(buildSourceActionMenu(account()), "Sync Likes")).toBeNull();
+    if (likes?.type !== "checkbox") throw new Error("Missing Sync Likes");
+    likes.onCheckedChange?.(true);
+    expect(window.pond.query).toHaveBeenCalledWith("accounts.setSyncLikes", {
+      accountId: "acc-twitter",
+      syncLikes: true,
+    });
+  });
+
+  it("does not refresh after a rejected likes preference write", async () => {
+    const onChanged = vi.fn();
+    vi.mocked(window.pond.query).mockResolvedValueOnce({
+      ok: false,
+      error: "write failed",
+    });
+    const row: AccountRow = {
+      id: "acc-twitter",
+      source: "twitter",
+      handle: "raphael",
+      label: null,
+      avatarUrl: null,
+      addedAt: "",
+      sync: { lastSyncedAt: null, lastError: null, knownCount: 12 },
+      connected: true,
+      syncing: false,
+    };
+    const items = buildSourceActionMenu(accountMenuTarget(row, ready), {
+      onChanged,
+    });
+    const likes = findItem(items, "Sync Likes");
+    if (likes?.type !== "checkbox") throw new Error("Missing Sync Likes");
+    const notification = nextNotification();
+
+    likes.onCheckedChange?.(false);
+
+    await expect(notification).resolves.toEqual({
+      title: "Couldn't update Likes syncing",
+      description: "write failed",
+    });
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("reports a rejected likes preference request without refreshing", async () => {
+    const onChanged = vi.fn();
+    vi.mocked(window.pond.query).mockRejectedValueOnce(new Error("offline"));
+    const row: AccountRow = {
+      id: "acc-twitter",
+      source: "twitter",
+      handle: "raphael",
+      label: null,
+      avatarUrl: null,
+      addedAt: "",
+      sync: { lastSyncedAt: null, lastError: null, knownCount: 12 },
+      connected: true,
+      syncing: false,
+    };
+    const likes = findItem(
+      buildSourceActionMenu(accountMenuTarget(row, ready), { onChanged }),
+      "Sync Likes",
+    );
+    if (likes?.type !== "checkbox") throw new Error("Missing Sync Likes");
+    const notification = nextNotification();
+
+    likes.onCheckedChange?.(false);
+
+    await expect(notification).resolves.toEqual({
+      title: "Couldn't update Likes syncing",
+      description: "offline",
+    });
+    expect(onChanged).not.toHaveBeenCalled();
   });
 
   it("starts the source sign-in flow from the connection group", async () => {

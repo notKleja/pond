@@ -6,7 +6,7 @@ import log from "electron-log/main.js";
 import sharp, { type Metadata } from "sharp";
 import { eagleFormatGroup } from "../../shared/eagle-formats";
 import { THUMBNAIL_CACHE_VERSION } from "../../shared/media-index";
-import { thumbnailFilename } from "../../shared/save-file-names";
+import { thumbnailSidecarCandidates } from "../../shared/save-file-names";
 import { decodeHeicOnMac } from "../lib/heic";
 import {
   createThumbnailScheduler,
@@ -277,16 +277,17 @@ async function importedThumbnailSidecarPipeline(sourcePath: string): Promise<{
   pipeline: ReturnType<typeof sharp>;
   metadata: Metadata;
 } | null> {
-  const sidecarPath = join(dirname(sourcePath), thumbnailFilename(sourcePath));
-  if (!existsSync(sidecarPath)) return null;
-  try {
-    const pipeline = sharp(await readLibraryMedia(sidecarPath), {
-      failOn: "none",
-    });
-    return { pipeline, metadata: await pipeline.metadata() };
-  } catch {
-    return null;
+  for (const name of thumbnailSidecarCandidates(sourcePath)) {
+    const sidecarPath = join(dirname(sourcePath), name);
+    if (!existsSync(sidecarPath)) continue;
+    try {
+      const pipeline = sharp(await readLibraryMedia(sidecarPath), {
+        failOn: "none",
+      });
+      return { pipeline, metadata: await pipeline.metadata() };
+    } catch {}
   }
+  return null;
 }
 
 async function rawThumbnailPipeline(sourcePath: string): Promise<{

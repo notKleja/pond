@@ -163,6 +163,7 @@ export function buildTrayTemplate(
         run("Import from Clipboard", "library.import-clipboard"),
         { type: "separator" },
         run("Import Bookmarks", "library.import-bookmarks"),
+        run("Import mymind", "library.import-mymind"),
         run("Import Page Assets", "library.import-page-assets"),
         { type: "separator" },
         run(FILE_MENU_IMPORT_LABELS[3], "library.import-eagle"),

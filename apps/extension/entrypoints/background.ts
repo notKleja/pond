@@ -16,6 +16,7 @@ import { nativeCall } from "@/utils/native";
 import { pickPageAssets } from "@/utils/page-assets";
 import { probe } from "@/utils/probe";
 import { ensureSettings } from "@/utils/settings";
+import { createSingleFlightTrigger } from "@/utils/single-flight";
 import type { PondCapturePayload, PushSessionResult } from "@/utils/types";
 import { cookieDomainsForSource, isCookieSourceUrl } from "@/utils/url";
 
@@ -55,45 +56,41 @@ const DEFAULT_SCHEDULER_STATE: SchedulerState = {
 };
 
 export default defineBackground(() => {
-  let autoPushInFlight = false;
-
-  chrome.runtime.onInstalled.addListener(async () => {
+  browser.runtime.onInstalled.addListener(async () => {
     await ensureSettings();
     clearStaleBadge();
-    chrome.contextMenus.removeAll(() => {
-      chrome.contextMenus.create({
-        id: SAVE_MENU_ID,
-        title: "Save to Pond",
-        contexts: ["page", "link", "image", "video", "audio"],
-      });
-      for (const [id, title] of [
-        ["pond-assets", "Collect images from this page"],
-        ["pond-visible", "Save visible page screenshot"],
-        ["pond-region", "Save page region screenshot"],
-        ["pond-element", "Save Page Element Screenshot"],
-        ["pond-full-page", "Save full page screenshot"],
-      ]) {
-        if (id && title)
-          chrome.contextMenus.create({
-            id,
-            title,
-            contexts: ["page", "image"],
-          });
-      }
+    await browser.contextMenus.removeAll();
+    browser.contextMenus.create({
+      id: SAVE_MENU_ID,
+      title: "Save to Pond",
+      contexts: ["page", "link", "image", "video", "audio"],
     });
+    for (const [id, title] of [
+      ["pond-assets", "Collect images from this page"],
+      ["pond-visible", "Save visible page screenshot"],
+      ["pond-region", "Save page region screenshot"],
+      ["pond-element", "Save Page Element Screenshot"],
+      ["pond-full-page", "Save full page screenshot"],
+    ]) {
+      browser.contextMenus.create({
+        id,
+        title,
+        contexts: ["page", "image"],
+      });
+    }
   });
 
-  chrome.runtime.onStartup.addListener(clearStaleBadge);
+  browser.runtime.onStartup.addListener(clearStaleBadge);
 
   clearStaleBadge();
 
   function clearStaleBadge(): void {
-    if (!chrome.action) return;
-    chrome.action.setBadgeText({ text: "" }).catch(() => {});
+    if (!browser.action) return;
+    browser.action.setBadgeText({ text: "" }).catch(() => {});
   }
 
-  if (chrome.action?.onClicked) {
-    chrome.action.onClicked.addListener((tab) => {
+  if (browser.action?.onClicked) {
+    browser.action.onClicked.addListener((tab) => {
       const url = tab.url;
       if (!url) {
         flashBadge(tab.id, "!", "#dd9b00");
@@ -103,7 +100,7 @@ export default defineBackground(() => {
     });
   }
 
-  chrome.contextMenus.onClicked.addListener((info, tab) => {
+  browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "pond-assets" && tab?.id != null) {
       void capturePageAssets(tab.id).catch(() =>
         flashBadge(tab.id, "x", "#cc3333"),
@@ -190,37 +187,35 @@ export default defineBackground(() => {
     }
   });
 
-  chrome.tabs.onActivated.addListener((info) => {
-    void chrome.tabs
+  browser.tabs.onActivated.addListener((info) => {
+    void browser.tabs
       .get(info.tabId)
       .then((tab) => {
-        void maybeAutoPush({
-          force: Boolean(tab.url && isCookieSourceUrl(tab.url)),
-        });
+        void maybeAutoPush(Boolean(tab.url && isCookieSourceUrl(tab.url)));
       })
       .catch(() => {
         void maybeAutoPush();
       });
   });
 
-  chrome.tabs.onUpdated.addListener((_id, change, tab) => {
+  browser.tabs.onUpdated.addListener((_id, change, tab) => {
     if (change.status !== "complete" || !tab.url) return;
     if (!isCookieSourceUrl(tab.url)) return;
-    void maybeAutoPush({ force: true });
+    void maybeAutoPush(true);
   });
 
-  chrome.alarms.onAlarm.addListener((alarm) => {
+  browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === SESSION_ALARM) void maybeAutoPush();
   });
   void readSchedulerState()
     .then((state) => scheduleSessionAlarm(state.pending))
     .catch(() => scheduleSessionAlarm(false))
-    .finally(() => maybeAutoPush({ force: true }));
+    .finally(() => maybeAutoPush(true));
 
   async function openPondTab(path: string | undefined): Promise<boolean> {
     const target = path ? `pond://${path}` : "pond://";
     try {
-      await chrome.tabs.create({ url: target, active: true });
+      await browser.tabs.create({ url: target, active: true });
       return true;
     } catch (err) {
       console.error("[pond] openPond failed", err);
@@ -238,18 +233,18 @@ export default defineBackground(() => {
   }
 
   async function readSchedulerState(): Promise<SchedulerState> {
-    const stored = await chrome.storage.session.get(SCHEDULER_STORAGE_KEY);
+    const stored = await browser.storage.session.get(SCHEDULER_STORAGE_KEY);
     return schedulerStateSchema
       .catch(DEFAULT_SCHEDULER_STATE)
       .parse(stored[SCHEDULER_STORAGE_KEY]);
   }
 
   async function writeSchedulerState(state: SchedulerState): Promise<void> {
-    await chrome.storage.session.set({ [SCHEDULER_STORAGE_KEY]: state });
+    await browser.storage.session.set({ [SCHEDULER_STORAGE_KEY]: state });
   }
 
   function scheduleSessionAlarm(pending: boolean): void {
-    chrome.alarms.create(SESSION_ALARM, {
+    browser.alarms.create(SESSION_ALARM, {
       periodInMinutes: pending ? 0.5 : 5,
     });
   }
@@ -262,72 +257,66 @@ export default defineBackground(() => {
     scheduleSessionAlarm(false);
   }
 
-  async function maybeAutoPush(opts?: { force?: boolean }): Promise<void> {
-    if (autoPushInFlight) return;
-    autoPushInFlight = true;
-    try {
-      const now = Date.now();
-      const state = await readSchedulerState();
-      if (!opts?.force && now < state.nextProbeAt) return;
+  const maybeAutoPush = createSingleFlightTrigger(async (force) => {
+    const now = Date.now();
+    const state = await readSchedulerState();
+    if (!force && now < state.nextProbeAt) return;
 
-      const probeResult = await fetchPendingSource();
-      if (probeResult.kind === "idle") {
-        await markSchedulerIdle();
-        return;
-      }
-      if (probeResult.kind === "offline") {
-        const failures = state.failures + 1;
-        const delay = Math.min(
-          IDLE_PROBE_MS,
-          ACTIVE_PROBE_MS * 2 ** Math.min(failures - 1, 4),
-        );
-        await writeSchedulerState({
-          ...state,
-          failures,
-          nextProbeAt: now + delay,
-        });
-        scheduleSessionAlarm(state.pending);
-        return;
-      }
-
-      const pending = probeResult.source;
-      if (cookieDomainsForSource(pending).length === 0) {
-        await markSchedulerIdle();
-        return;
-      }
-
-      const nextState: SchedulerState = {
-        ...state,
-        failures: 0,
-        pending: true,
-        nextProbeAt: now + ACTIVE_PROBE_MS,
-      };
-      scheduleSessionAlarm(true);
-      if (
-        state.lastPushSource === pending &&
-        now - state.lastPushAt < AUTO_PUSH_COOLDOWN_MS
-      ) {
-        await writeSchedulerState(nextState);
-        return;
-      }
-
-      nextState.lastPushSource = pending;
-      nextState.lastPushAt = now;
-      await writeSchedulerState(nextState);
-      const result = await pushSession(pending);
-      if (result.ok && result.data.connected) {
-        await markSchedulerIdle();
-        flashBadge(undefined, "ok", "#1f9d55");
-        return;
-      }
-      if (result.ok) return;
-      if (result.reason === "network") {
-        console.warn("[pond] auto-push failed", result.detail);
-      }
-    } finally {
-      autoPushInFlight = false;
+    const probeResult = await fetchPendingSource();
+    if (probeResult.kind === "idle") {
+      await markSchedulerIdle();
+      return;
     }
-  }
+    if (probeResult.kind === "offline") {
+      const failures = state.failures + 1;
+      const delay = Math.min(
+        IDLE_PROBE_MS,
+        ACTIVE_PROBE_MS * 2 ** Math.min(failures - 1, 4),
+      );
+      await writeSchedulerState({
+        ...state,
+        failures,
+        nextProbeAt: now + delay,
+      });
+      scheduleSessionAlarm(state.pending);
+      return;
+    }
+
+    const pending = probeResult.source;
+    if (cookieDomainsForSource(pending).length === 0) {
+      await markSchedulerIdle();
+      return;
+    }
+
+    const nextState: SchedulerState = {
+      ...state,
+      failures: 0,
+      pending: true,
+      nextProbeAt: now + ACTIVE_PROBE_MS,
+    };
+    scheduleSessionAlarm(true);
+    if (
+      state.lastPushSource === pending &&
+      now - state.lastPushAt < AUTO_PUSH_COOLDOWN_MS
+    ) {
+      await writeSchedulerState(nextState);
+      return;
+    }
+
+    nextState.lastPushSource = pending;
+    nextState.lastPushAt = now;
+    await writeSchedulerState(nextState);
+    const result = await pushSession(pending);
+    if (result.ok && result.data.connected) {
+      await markSchedulerIdle();
+      flashBadge(undefined, "ok", "#1f9d55");
+      return;
+    }
+    if (result.ok) return;
+    if (result.reason === "network") {
+      console.warn("[pond] auto-push failed", result.detail);
+    }
+  });
 
   async function pushSession(source: Source): Promise<PushSessionResult> {
     const domains = cookieDomainsForSource(source);
@@ -338,7 +327,7 @@ export default defineBackground(() => {
     const raw: chrome.cookies.Cookie[] = [];
     try {
       const batches = await Promise.all(
-        domains.map((domain) => chrome.cookies.getAll({ domain })),
+        domains.map((domain) => browser.cookies.getAll({ domain })),
       );
       const seen = new Set<string>();
       for (const cookie of batches.flat()) {
@@ -402,8 +391,8 @@ export default defineBackground(() => {
       const page = new URL(url);
       if (page.protocol !== "http:" && page.protocol !== "https:") return [];
       const [byUrl, byDomain] = await Promise.all([
-        chrome.cookies.getAll({ url }),
-        chrome.cookies.getAll({ domain: page.hostname }),
+        browser.cookies.getAll({ url }),
+        browser.cookies.getAll({ domain: page.hostname }),
       ]);
       const seen = new Set<string>();
       const out: ExtensionCookie[] = [];
@@ -463,7 +452,7 @@ export default defineBackground(() => {
     const catalog = {
       folders: folders?.success ? folders.data : [],
     };
-    const [result] = await chrome.scripting.executeScript({
+    const [result] = await browser.scripting.executeScript({
       target: { tabId },
       func: pickPageAssets,
       args: [catalog],
@@ -498,7 +487,7 @@ export default defineBackground(() => {
     const needsSelection = mode === "region" || mode === "element";
     const selection = needsSelection
       ? (
-          await chrome.scripting.executeScript({
+          await browser.scripting.executeScript({
             target: { tabId: tab.id },
             func: mode === "element" ? pickPageElement : pickBrowserRegion,
           })
@@ -506,7 +495,7 @@ export default defineBackground(() => {
       : undefined;
     if (needsSelection && !selection) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
-    const [current] = await chrome.tabs.query({
+    const [current] = await browser.tabs.query({
       active: true,
       windowId: tab.windowId,
     });
@@ -515,11 +504,11 @@ export default defineBackground(() => {
     const visible =
       mode === "full"
         ? await captureFullPage(tab.id, tab.windowId)
-        : await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+        : await browser.tabs.captureVisibleTab(tab.windowId, { format: "png" });
     const dataUrl = selection
       ? await cropScreenshot(visible, selection)
       : visible;
-    const [afterCapture] = await chrome.tabs.query({
+    const [afterCapture] = await browser.tabs.query({
       active: true,
       windowId: tab.windowId,
     });
@@ -546,7 +535,7 @@ export default defineBackground(() => {
   async function showCaptureError(tabId: number | undefined, message: string) {
     flashBadge(tabId, "x", "#cc3333");
     if (tabId == null) return;
-    await chrome.scripting
+    await browser.scripting
       .executeScript({
         target: { tabId },
         args: [message],
@@ -564,19 +553,19 @@ export default defineBackground(() => {
   }
 
   function flashBadge(tabId: number | undefined, text: string, color: string) {
-    if (!chrome.action) return;
+    if (!browser.action) return;
     const badge: chrome.action.BadgeTextDetails = { text };
     const badgeColor: chrome.action.BadgeColorDetails = { color };
     if (tabId !== undefined) {
       badge.tabId = tabId;
       badgeColor.tabId = tabId;
     }
-    chrome.action.setBadgeBackgroundColor(badgeColor);
-    chrome.action.setBadgeText(badge);
+    browser.action.setBadgeBackgroundColor(badgeColor);
+    browser.action.setBadgeText(badge);
     setTimeout(() => {
       const clear: chrome.action.BadgeTextDetails = { text: "" };
       if (tabId !== undefined) clear.tabId = tabId;
-      chrome.action.setBadgeText(clear);
+      browser.action.setBadgeText(clear);
     }, 1500);
   }
 });

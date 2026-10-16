@@ -1,4 +1,4 @@
-import { Select, Switch } from "@pond/ui";
+import { Select, Slider, Switch } from "@pond/ui";
 import { useId } from "react";
 import {
   GAP_STEPS,
@@ -62,19 +62,61 @@ const FIT_OPTIONS: Array<{ value: "fit" | "fill"; label: string }> = [
   { value: "fit", label: "Fit" },
   { value: "fill", label: "Fill" },
 ];
-const SIZE_OPTIONS = [...ZOOM_STEPS];
-const GAP_OPTIONS = [...GAP_STEPS];
+const SIZE_VALUES = ZOOM_STEPS.map((step) => step.value);
+const GAP_VALUES = GAP_STEPS.map((step) => step.value);
 const DIRECTION_OPTIONS: Array<{ value: SortDir; label: string }> = [
   { value: "asc", label: "Ascending" },
   { value: "desc", label: "Descending" },
 ];
+
+function DiscreteSlider({
+  label,
+  index,
+  values,
+  onValueChange,
+}: {
+  label: string;
+  index: number;
+  values: ReadonlyArray<number>;
+  onValueChange: (value: number) => void;
+}) {
+  const value = values[index] ?? values[0] ?? 0;
+
+  return (
+    <Slider.Root
+      className={styles.row}
+      min={0}
+      max={Math.max(0, values.length - 1)}
+      step={1}
+      value={index}
+      onValueChange={(next) => {
+        const nextIndex = Array.isArray(next) ? (next[0] ?? index) : next;
+        const nextValue = values[nextIndex];
+        if (nextValue !== undefined) onValueChange(nextValue);
+      }}
+    >
+      <Slider.Label className={styles.rowLabel}>{label}</Slider.Label>
+      <Slider.Control className={styles.sliderControl}>
+        <Slider.Track>
+          <Slider.Indicator />
+          <Slider.Thumb aria-label={label} aria-valuetext={`${value} pixels`} />
+        </Slider.Track>
+      </Slider.Control>
+      <output className={styles.sliderValue}>{value} px</output>
+    </Slider.Root>
+  );
+}
 
 export function LayoutOptions() {
   const { state, actions } = useView();
   const [viewer, patchViewer] = usePrefs("viewer");
   const itemInfo = useItemInfo();
   const gap = nearestGap(useLibrarySaveGap());
-  const size = ZOOM_STEPS[nearestZoomIndex(state.zoom)] ?? SIZE_OPTIONS[0];
+  const sizeIndex = nearestZoomIndex(state.zoom);
+  const gapIndex = Math.max(
+    0,
+    GAP_STEPS.findIndex((step) => step.value === gap),
+  );
 
   return (
     <div className={styles.rows}>
@@ -99,48 +141,18 @@ export function LayoutOptions() {
           </Select.Positioner>
         </Select.Portal>
       </Select.Root>
-      <Select.Root
-        items={SIZE_OPTIONS}
-        value={size?.value}
-        onValueChange={(value) => {
-          if (value !== null) actions.setZoom(value);
-        }}
-      >
-        <div className={styles.row}>
-          <Select.Label className={styles.rowLabel}>Size</Select.Label>
-          <Select.Trigger size="sm" className={styles.select}>
-            <Select.Value />
-          </Select.Trigger>
-        </div>
-        <Select.Portal>
-          <Select.Positioner align="end" sideOffset={6}>
-            <Select.Popup>
-              <Select.Items items={SIZE_OPTIONS} />
-            </Select.Popup>
-          </Select.Positioner>
-        </Select.Portal>
-      </Select.Root>
-      <Select.Root
-        items={GAP_OPTIONS}
-        value={gap}
-        onValueChange={(value) => {
-          if (value !== null) setLibrarySaveGap(value);
-        }}
-      >
-        <div className={styles.row}>
-          <Select.Label className={styles.rowLabel}>Gap</Select.Label>
-          <Select.Trigger size="sm" className={styles.select}>
-            <Select.Value />
-          </Select.Trigger>
-        </div>
-        <Select.Portal>
-          <Select.Positioner align="end" sideOffset={6}>
-            <Select.Popup>
-              <Select.Items items={GAP_OPTIONS} />
-            </Select.Popup>
-          </Select.Positioner>
-        </Select.Portal>
-      </Select.Root>
+      <DiscreteSlider
+        label="Size"
+        index={sizeIndex}
+        values={SIZE_VALUES}
+        onValueChange={actions.setZoom}
+      />
+      <DiscreteSlider
+        label="Gap"
+        index={gapIndex}
+        values={GAP_VALUES}
+        onValueChange={setLibrarySaveGap}
+      />
       <Select.Root
         items={QUALITY_OPTIONS}
         value={viewer.thumbnailQuality}
@@ -315,6 +327,16 @@ export function DisplayOptions() {
           id={`${id}-subfolders`}
           checked={includeSubfolders}
           onCheckedChange={setIncludeSubfolders}
+        />
+      </label>
+      <label className={styles.row} htmlFor={`${id}-source`}>
+        <span className={styles.rowLabel}>Show Source Tag</span>
+        <Switch.Root
+          id={`${id}-source`}
+          checked={state.displayPrefs.source}
+          onCheckedChange={(checked) =>
+            actions.setDisplayPref("source", checked)
+          }
         />
       </label>
       <hr className={styles.separator} />

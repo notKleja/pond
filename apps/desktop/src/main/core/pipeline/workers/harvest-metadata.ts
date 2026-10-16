@@ -34,7 +34,7 @@ export async function runHarvestMetadata(
   const extractor = extractorFor(save.source) ?? resolveExtractor(save.url);
   const capture =
     save.source === "web" || save.source === "local"
-      ? await extractor.extract({ url: new URL(save.url) })
+      ? await extractor.extract({ url: new URL(save.url), signal: ctx.signal })
       : await captureFromSource({
           url: save.url,
           source: save.source,

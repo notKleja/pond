@@ -208,6 +208,7 @@ app.whenReady().then(async () => {
   }
 
   registerIpc();
+  if (!process.env.POND_SANDBOX) registerAutoUpdater();
   subscribePrefs((prefs) => broadcast(IPC.prefsChanged, prefs));
   registerCombineImagesWindowIpc();
   const menuPrefs = await getPrefs();
@@ -271,7 +272,6 @@ async function openActiveLibrary(): Promise<PondPaths | null> {
 async function postLaunchInit(): Promise<void> {
   if (!process.env.POND_SANDBOX) {
     await registerSummonHotkey();
-    registerAutoUpdater();
   }
 
   try {

@@ -5,6 +5,7 @@ import {
   IconCopy,
   IconCopyId,
   IconGrid,
+  IconHeart,
   IconLink2,
   IconNotepad,
   IconTableDownload,
@@ -34,6 +35,7 @@ export interface SourceMenuTarget {
   model: CardModel;
   knownCount: number;
   lastError: string | null;
+  syncLikes?: boolean;
 }
 
 export interface SourceMenuOptions {
@@ -54,6 +56,7 @@ export function accountMenuTarget(
     model,
     knownCount: account.sync.knownCount,
     lastError: account.sync.lastError,
+    syncLikes: account.sync.syncLikes,
   };
 }
 
@@ -226,7 +229,10 @@ function primaryFetchItem(target: SourceMenuTarget): MenuItemSpec {
   };
 }
 
-function fetchItems(target: SourceMenuTarget): MenuItemSpec[] {
+function fetchItems(
+  target: SourceMenuTarget,
+  options: SourceMenuOptions,
+): MenuItemSpec[] {
   const items: MenuItemSpec[] = [primaryFetchItem(target)];
   if (target.type === "account") {
     items.push(
@@ -255,6 +261,40 @@ function fetchItems(target: SourceMenuTarget): MenuItemSpec[] {
           }),
       },
     );
+  }
+  if (target.type === "account" && target.source === "twitter") {
+    items.push({
+      type: "checkbox",
+      label: "Sync Likes",
+      icon: <IconHeart />,
+      checked: target.syncLikes !== false,
+      onCheckedChange: (checked) => {
+        void (async () => {
+          try {
+            const result = await window.pond.query("accounts.setSyncLikes", {
+              accountId: target.id,
+              syncLikes: checked,
+            });
+            if (!result.ok) {
+              notify({
+                id: "source-sync-likes",
+                title: "Couldn't update Likes syncing",
+                description: result.error,
+              });
+              return;
+            }
+            (options.onChanged ?? sourceDetail.changed)();
+          } catch (error) {
+            notify({
+              id: "source-sync-likes",
+              title: "Couldn't update Likes syncing",
+              description:
+                error instanceof Error ? error.message : "Please try again.",
+            });
+          }
+        })();
+      },
+    });
   }
   if (target.model.tone === "err" && target.lastError) {
     items.push({
@@ -346,7 +386,7 @@ function singleSourceMenu(
     { type: "separator" },
     { type: "group", items: copyItems(target) },
     { type: "separator" },
-    { type: "group", items: fetchItems(target) },
+    { type: "group", items: fetchItems(target, options) },
     { type: "separator" },
     {
       type: "group",

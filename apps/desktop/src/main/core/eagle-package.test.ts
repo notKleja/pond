@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import JSZip from "jszip";
+import sharp from "sharp";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { isWindowsSymlinkPrivilegeError } from "../test/symlink";
@@ -40,7 +41,17 @@ async function exportFixture() {
   const source = join(root, "source");
   await mkdir(source);
   await writeFile(join(source, "photo.jpg"), "original");
-  await writeFile(join(source, "preview.png"), "thumbnail");
+  const thumbnail = await sharp({
+    create: {
+      width: 16,
+      height: 12,
+      channels: 3,
+      background: "#336699",
+    },
+  })
+    .webp()
+    .toBuffer();
+  await writeFile(join(source, "preview.webp"), thumbnail);
   const input: EaglePackageExportInput = {
     folders: [
       { id: "parent", name: "Design", parentId: null, sortOrder: 0 },
@@ -71,9 +82,10 @@ async function exportFixture() {
             },
             {
               kind: "thumbnail",
-              path: "preview.png",
-              size: 9,
+              path: "preview.webp",
+              size: thumbnail.byteLength,
               sha256: "thumbnail",
+              mimeType: "image/webp",
             },
           ],
         },
@@ -86,7 +98,7 @@ async function exportFixture() {
 interface ImportedItem {
   eagleId: string;
   media: string[];
-  thumbnail: string | null;
+  thumbnail: Buffer | null;
   folderIds: string[];
   tags: string[];
 }
@@ -115,7 +127,7 @@ function fakeRuntime(options: { failId?: string } = {}) {
           item.mediaPaths.map((path) => readFile(path, "utf8")),
         ),
         thumbnail: item.thumbnailPath
-          ? await readFile(item.thumbnailPath, "utf8")
+          ? await readFile(item.thumbnailPath)
           : null,
         folderIds,
         tags: item.metadata.tags ?? [],
@@ -184,6 +196,11 @@ describe("Eagle package transfer", () => {
       })
       .passthrough()
       .parse(JSON.parse(await packFile.async("string")));
+    const thumbnailFile = archive.file("save-1.info/photo.jpg_thumbnail.png");
+    if (!thumbnailFile) throw new Error("Missing exported thumbnail");
+    expect(
+      (await sharp(await thumbnailFile.async("nodebuffer")).metadata()).format,
+    ).toBe("png");
     expect(pack.folder).toMatchObject({ id: "parent", name: "Design" });
     expect(pack).not.toHaveProperty("folders");
 
@@ -192,13 +209,15 @@ describe("Eagle package transfer", () => {
       importEaglePackage(destination, target.runtime),
     ).resolves.toEqual({ imported: 1, skipped: 0 });
     expect(target.folders).toEqual([["Design", "Posters"]]);
-    expect(target.imported.get("save-1")).toEqual({
+    expect(target.imported.get("save-1")).toMatchObject({
       eagleId: "save-1",
       media: ["original"],
-      thumbnail: "thumbnail",
       folderIds: ["mapped-child"],
       tags: ["Print", "Layout"],
     });
+    const importedThumbnail = target.imported.get("save-1")?.thumbnail;
+    if (!importedThumbnail) throw new Error("Missing imported thumbnail");
+    expect((await sharp(importedThumbnail).metadata()).format).toBe("png");
     await expect(
       importEaglePackage(destination, target.runtime),
     ).resolves.toEqual({ imported: 0, skipped: 1 });
@@ -212,10 +231,12 @@ describe("Eagle package transfer", () => {
     ).resolves.toEqual({ imported: 1, skipped: 0 });
     expect(target.imported.get("one")).toMatchObject({
       media: ["body-one"],
-      thumbnail: "thumbnail-one",
       folderIds: ["mapped-child"],
       tags: ["Reference"],
     });
+    expect(target.imported.get("one")?.thumbnail?.toString()).toBe(
+      "thumbnail-one",
+    );
   });
 
   it("rejects directory symlinks before importing anything", async (ctx) => {

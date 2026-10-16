@@ -3,6 +3,7 @@ import { saves } from "@pond/schema/db";
 import {
   hasMediaThumbnail,
   primaryOriginalPath,
+  TEXT_THUMBNAIL_WEBP_FILE,
   THUMBNAIL_DARK_KIND,
   THUMBNAIL_KIND,
   thumbnailFilename,
@@ -14,9 +15,9 @@ import { getDb } from "../db";
 import { saveFile } from "../paths";
 import { persistSave } from "./persist-save";
 import type { WriteFileArgs } from "./pipeline/workers/apply";
-import { renderThumbnailPng, thumbnailSource } from "./save-thumbnail-file";
+import { renderThumbnail, thumbnailSource } from "./save-thumbnail-file";
 
-export { renderThumbnailPng };
+export { renderThumbnail };
 
 function thumbnailWriteArgs(
   files: ReadonlyArray<{ kind: string; path: string }>,
@@ -27,9 +28,9 @@ function thumbnailWriteArgs(
   const primary = primaryOriginalPath(files);
   const write: WriteFileArgs = {
     kind: THUMBNAIL_KIND,
-    filename: primary ? thumbnailFilename(primary) : "thumbnail.png",
+    filename: primary ? thumbnailFilename(primary) : TEXT_THUMBNAIL_WEBP_FILE,
     bytes,
-    mimeType: "image/png",
+    mimeType: "image/webp",
   };
   if (width) write.width = width;
   if (height) write.height = height;
@@ -77,9 +78,9 @@ export async function ensureSaveThumbnail(
   if (hasMediaThumbnail(files)) return;
   const primary = thumbnailSource(files);
   if (!primary) return;
-  const png = await renderThumbnailPng(saveFile(saveId, primary.path));
-  if (!png) return;
-  const meta = await sharp(png)
+  const thumbnail = await renderThumbnail(saveFile(saveId, primary.path));
+  if (!thumbnail) return;
+  const meta = await sharp(thumbnail)
     .metadata()
     .catch(() => null);
   try {
@@ -92,7 +93,7 @@ export async function ensureSaveThumbnail(
         newFiles: [
           thumbnailWriteArgs(
             files,
-            png,
+            thumbnail,
             meta?.width ?? undefined,
             meta?.height ?? undefined,
           ),

@@ -7,7 +7,7 @@ import {
   IconTrash as Trash,
 } from "@pond/icons";
 import { Button, Input, Settings, Switch } from "@pond/ui";
-import type { AssistantProvider } from "@shared/assistant";
+import { type AssistantProvider, providerGroup } from "@shared/assistant";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -53,6 +53,7 @@ export function ProviderConnection({
   onRemoved?: () => void;
 }) {
   const connected = Boolean(row?.hasKey);
+  const subscription = providerGroup(catalog.id) === "subscription";
   const setupUrl = catalog.setupUrl;
   const endpointLabel =
     catalog.id === "azure" ? "Resource Name" : "API Base URL";
@@ -261,31 +262,49 @@ export function ProviderConnection({
               }}
             >
               <Settings.CardContent className={styles.content}>
-                <Input.Root className={styles.input}>
-                  <Input.Field
-                    type={revealed ? "text" : "password"}
-                    autoComplete="off"
-                    aria-label="API Key"
-                    disabled={saving}
-                    placeholder={`Enter your ${catalog.provider} API Key`}
-                    value={keyDraft}
-                    onValueChange={setKeyDraft}
-                  />
-                  <Input.Action>
-                    <Button
-                      type="button"
-                      icon
-                      size="xs"
-                      variant="ghost"
-                      rounding="rounded"
-                      aria-label={revealed ? "Hide API Key" : "Show API Key"}
-                      aria-pressed={revealed || undefined}
-                      onClick={() => setRevealed((open) => !open)}
-                    >
-                      {revealed ? <EyeOff size={12} /> : <Eye size={12} />}
-                    </Button>
-                  </Input.Action>
-                </Input.Root>
+                {subscription ? (
+                  <p className={styles.instructions}>
+                    {catalog.id === "codex" ? (
+                      <>
+                        Sign in with ChatGPT in Terminal using{" "}
+                        <code>codex login</code>, then connect here.
+                      </>
+                    ) : (
+                      <>
+                        Sign in with your Claude plan in Terminal using{" "}
+                        <code>claude auth login</code>, then connect here.
+                      </>
+                    )}{" "}
+                    Uses your subscription limits. Text and Library tools are
+                    supported.
+                  </p>
+                ) : (
+                  <Input.Root className={styles.input}>
+                    <Input.Field
+                      type={revealed ? "text" : "password"}
+                      autoComplete="off"
+                      aria-label="API Key"
+                      disabled={saving}
+                      placeholder={`Enter your ${catalog.provider} API Key`}
+                      value={keyDraft}
+                      onValueChange={setKeyDraft}
+                    />
+                    <Input.Action>
+                      <Button
+                        type="button"
+                        icon
+                        size="xs"
+                        variant="ghost"
+                        rounding="rounded"
+                        aria-label={revealed ? "Hide API Key" : "Show API Key"}
+                        aria-pressed={revealed || undefined}
+                        onClick={() => setRevealed((open) => !open)}
+                      >
+                        {revealed ? <EyeOff size={12} /> : <Eye size={12} />}
+                      </Button>
+                    </Input.Action>
+                  </Input.Root>
+                )}
                 {endpoint !== undefined ? (
                   <Input.Root className={styles.input}>
                     <Input.Field
@@ -314,7 +333,11 @@ export function ProviderConnection({
                   Cancel
                 </Button>
                 <Button type="submit" variant="secondary" disabled={!canSave}>
-                  {catalog.needsKey ? "Save API Key" : "Save"}
+                  {subscription
+                    ? "Connect"
+                    : catalog.needsKey
+                      ? "Save API Key"
+                      : "Save"}
                 </Button>
               </Settings.CardFooter>
             </form>

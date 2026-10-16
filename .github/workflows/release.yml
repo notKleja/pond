@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  prepare:
+  release:
     runs-on: macos-latest
 
     permissions:
@@ -28,7 +28,10 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # electron-builder packages both Mac architectures in this job. Install
+        # both native dependency variants here without bloating normal dev/CI
+        # installs with every dependency's second architecture.
+        run: pnpm install --frozen-lockfile --os=darwin --cpu=arm64 --cpu=x64
 
       - name: Set up Turborepo Remote Cache
         if: ${{ vars.TURBO_TEAM != '' }}
@@ -93,14 +96,39 @@ jobs:
       - name: Desktop end-to-end smoke
         run: pnpm --filter @pond/desktop smoke:desktop
 
+      - name: Require signing credentials
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              echo "Missing repository secret: $name"
+              exit 1
+            fi
+          done
+
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
-              --title "Pond ${GITHUB_REF_NAME#v}" --notes ""
+              --title "Pond ${GITHUB_REF_NAME#v}" --generate-notes
           fi
+
+      - name: Package macOS app and upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm --filter @pond/desktop dist:mac:publish
 
       - name: Build extension zip
         run: pnpm --filter @pond/extension zip
@@ -118,117 +146,17 @@ jobs:
           cp "$ZIP" "pond-extension-${VERSION}.zip"
           gh release upload "$GITHUB_REF_NAME" "pond-extension-${VERSION}.zip" --clobber
 
-  macos:
-    needs: prepare
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            os: macos-latest
-            command: pnpm dist:mac:arm64
-          - arch: x64
-            os: macos-15-intel
-            command: pnpm dist:mac:x64
-    runs-on: ${{ matrix.os }}
-
-    permissions:
-      contents: read
-      id-token: write
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Set up Turborepo Remote Cache
-        if: ${{ vars.TURBO_TEAM != '' }}
-        uses: vercel/setup-turborepo-remote-cache-action@v1.1.0
-        with:
-          team: ${{ vars.TURBO_TEAM }}
-
-      - name: Require signing credentials
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "${!name}" ]; then
-              echo "Missing repository secret: $name"
-              exit 1
-            fi
-          done
-
-      - name: Package macOS app
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: ${{ matrix.command }}
-
-      - name: Stage macOS release artifacts
-        run: |
-          mkdir "release-macos-${{ matrix.arch }}"
-          cp apps/desktop/dist/Pond-*-${{ matrix.arch }}.dmg "release-macos-${{ matrix.arch }}/"
-          cp apps/desktop/dist/Pond-*-${{ matrix.arch }}.zip "release-macos-${{ matrix.arch }}/"
-          cp apps/desktop/dist/Pond-*-${{ matrix.arch }}.*.blockmap "release-macos-${{ matrix.arch }}/"
-
-      - name: Upload macOS release artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: release-macos-${{ matrix.arch }}
-          path: release-macos-${{ matrix.arch }}/
-          if-no-files-found: error
-          retention-days: 1
-
-  macos-publish:
-    needs: [prepare, macos]
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-
-      - uses: actions/download-artifact@v7
-        with:
-          pattern: release-macos-*
-          path: macos-artifacts
-          merge-multiple: true
-
-      - name: Write combined macOS updater metadata
-        run: node scripts/write-mac-update-metadata.mjs macos-artifacts "${GITHUB_REF_NAME#v}"
-
-      - name: Upload macOS artifacts to release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" macos-artifacts/* --clobber
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
 
   windows:
-    needs: prepare
+    needs: release
     runs-on: windows-latest
 
     permissions:
       contents: write
-      id-token: write
 
     steps:
       - uses: actions/checkout@v6
@@ -258,15 +186,45 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm dist:win:publish
 
-  publish:
-    needs: [macos-publish, windows]
+  homebrew:
+    needs: release
     runs-on: ubuntu-latest
 
     permissions:
       contents: write
 
     steps:
-      - name: Publish release
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Download macOS release artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir homebrew-artifacts
+          gh release download "$GITHUB_REF_NAME" \
+            --pattern "Pond-${VERSION}-arm64.dmg" \
+            --pattern "Pond-${VERSION}-x64.dmg" \
+            --dir homebrew-artifacts
+
+      - name: Update Homebrew cask
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node scripts/update-homebrew-cask.mjs \
+            "$VERSION" \
+            "homebrew-artifacts/Pond-${VERSION}-arm64.dmg" \
+            "homebrew-artifacts/Pond-${VERSION}-x64.dmg"
+
+      - name: Commit Homebrew cask
+        run: |
+          if git diff --quiet -- Casks/pond.rb; then
+            exit 0
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/pond.rb
+          git commit -m "chore(release): update Homebrew cask to ${VERSION}"
+          git push origin HEAD:main

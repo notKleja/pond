@@ -4,7 +4,21 @@
   flex-direction: column;
   width: 100%;
   min-height: 0;
-  padding: 0 48px 48px;
+}
+
+.trigger {
+  min-width: 0;
+  max-width: 420px;
+}
+
+.address {
+  min-width: 0;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--ds-text-sm);
+  color: var(--ds-gray-11);
+  white-space: nowrap;
 }
 
 .frame {
@@ -12,9 +26,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  background: var(--ds-gray-2);
-  border-radius: var(--ds-radius-md);
-  box-shadow: var(--ds-shadow-sm);
+  background: var(--ds-gray-1);
 }
 
 .webview {

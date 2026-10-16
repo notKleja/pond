@@ -24,8 +24,11 @@ import {
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
+import { clearUnfinishedDownloads } from "../../core/clear-unfinished-downloads";
+import { executeBatch, withMutationScope } from "../../core/executor";
 import { downloadActivity } from "../../core/pipeline/download-activity";
 import { pipelineSnapshot } from "../../core/pipeline/reconciler-client";
+import { recordBatchForUndo } from "../../core/undo";
 import { getDb } from "../../db";
 import { cursorFor } from "./downloads-page";
 import { type QueryHandlerMap, query, TrimmedTextParam } from "./params";
@@ -104,6 +107,18 @@ function toHistoryRow(row: HistoryRow): DownloadHistoryRow | null {
 export const downloadsQueries = {
   "downloads.activity": query(z.object({}), () => downloadActivity.snapshot()),
   "pipeline.status": query(z.object({}), () => pipelineSnapshot()),
+
+  "downloads.clearUnfinished": query(z.object({}), () =>
+    withMutationScope(async () =>
+      clearUnfinishedDownloads(
+        await getDb(),
+        async (transactions) => {
+          await executeBatch(transactions);
+        },
+        recordBatchForUndo,
+      ),
+    ),
+  ),
 
   "downloads.ingestingOrFailed": query(z.object({}), async () => {
     const db = await getDb();

@@ -86,7 +86,7 @@ it("hides unadded providers from Cloud and Local lists", async () => {
     const add = Array.from(host.querySelectorAll("button")).filter(
       (button) => button.textContent === "Add Provider",
     );
-    expect(add).toHaveLength(2);
+    expect(add).toHaveLength(3);
     await act(async () => add[0]?.click());
     expect(
       document.querySelector('[aria-label="Search Providers"]'),

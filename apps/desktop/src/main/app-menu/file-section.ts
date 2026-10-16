@@ -88,6 +88,10 @@ export function buildFileSection(context: AppMenuContext): AppMenuItem {
             click: sendMenuAction("library.import-bookmarks"),
           },
           {
+            label: "Import mymind",
+            click: sendMenuAction("library.import-mymind"),
+          },
+          {
             label: "Import Page Assets",
             click: sendMenuAction("library.import-page-assets"),
           },

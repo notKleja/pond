@@ -62,6 +62,9 @@ export const CaptureSchema = z.object({
   get quoted() {
     return CaptureSchema.optional();
   },
+  get replyTo() {
+    return CaptureSchema.optional();
+  },
   card: CaptureLinkCardSchema.optional(),
   isReply: z.boolean().optional(),
   replyingTo: z.string().optional(),

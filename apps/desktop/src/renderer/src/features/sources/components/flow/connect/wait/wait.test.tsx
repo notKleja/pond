@@ -23,6 +23,9 @@ function stubPond(
   onImported?: (
     cb: (payload: { source: string; accountId: string }) => void,
   ) => void,
+  onImportFailed?: (
+    cb: (payload: { source: string; reason: string }) => void,
+  ) => void,
 ) {
   vi.stubGlobal("pond", {
     query: async () => ({ accounts: [twitterAccount] }),
@@ -33,6 +36,12 @@ function stubPond(
       cb: (payload: { source: string; accountId: string }) => void,
     ) => {
       onImported?.(cb);
+      return () => {};
+    },
+    onSessionImportFailed: (
+      cb: (payload: { source: string; reason: string }) => void,
+    ) => {
+      onImportFailed?.(cb);
       return () => {};
     },
   });
@@ -55,6 +64,7 @@ afterEach(async () => {
     syncRunNow: async () => ({ ok: true }),
     clearPendingSession: async () => ({ ok: true }),
     onSessionImported: () => () => {},
+    onSessionImportFailed: () => () => {},
   });
   await refetchAccounts();
   vi.unstubAllGlobals();
@@ -117,4 +127,30 @@ it("explains the local connection before the account arrives", async () => {
     "You're responsible for following Twitter's terms while Pond syncs your account.",
   );
   expect(host.textContent).not.toContain("Waiting for sign-in");
+});
+
+it("shows a retry when the Instagram session import is rejected", async () => {
+  let importFailed:
+    | ((payload: { source: string; reason: string }) => void)
+    | undefined;
+  stubPond(undefined, (cb) => {
+    importFailed = cb;
+  });
+  connectFlow.start("instagram", []);
+  await act(async () => {
+    root.render(<ConnectWaitSection />);
+  });
+
+  const notifyImportFailed = importFailed;
+  if (!notifyImportFailed)
+    throw new Error("session import failure listener was not attached");
+  await act(async () => {
+    notifyImportFailed({
+      source: "instagram",
+      reason: "no_auth_cookies_in_payload",
+    });
+  });
+
+  expect(host.textContent).toContain("Couldn't connect Instagram");
+  expect(host.textContent).toContain("Try opening the sign-in page again.");
 });

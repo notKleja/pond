@@ -27,7 +27,8 @@ export function modelsFromProviderResponse(
   const local = provider === "ollama" || provider === "lmstudio";
   for (const raw of ids) {
     const id = raw.id.trim();
-    if (!id || seen.has(id) || !isChatModel(provider, id)) continue;
+    if (!id || seen.has(id) || !isChatModel(provider, id, raw.outputModalities))
+      continue;
     seen.add(id);
     const name = raw.name.trim() || (local ? id : displayName(id));
     const model: ProviderModel = local
@@ -52,6 +53,7 @@ function idsFromResponse(
   name: string;
   sizeBytes?: number;
   localCapabilities?: DeclaredLocalModelCapabilities;
+  outputModalities?: string[];
 }> {
   const stringField = z.string().catch("");
   const byteSize = z.number().int().positive().optional().catch(undefined);
@@ -108,9 +110,16 @@ function idsFromResponse(
             .object({
               id: stringField,
               display_name: stringField,
+              name: stringField,
               size: byteSize,
               size_bytes: byteSize,
               capabilities: localCapabilities,
+              architecture: z
+                .object({
+                  output_modalities: z.array(z.string()).catch([]),
+                })
+                .optional()
+                .catch(undefined),
             })
             .nullable()
             .catch(null),
@@ -135,16 +144,21 @@ function idsFromResponse(
         return [
           {
             id: row.id,
-            name: row.display_name,
+            name: row.display_name || row.name,
             sizeBytes: row.size_bytes ?? row.size,
             localCapabilities,
+            outputModalities: row.architecture?.output_modalities,
           },
         ];
       })
     : [];
 }
 
-function isChatModel(provider: AgentProviderId, id: string): boolean {
+function isChatModel(
+  provider: AgentProviderId,
+  id: string,
+  outputModalities?: string[],
+): boolean {
   if (SKIP.test(id)) return false;
   if (provider === "ollama" || provider === "lmstudio") return true;
   const n = id.toLowerCase();
@@ -152,6 +166,11 @@ function isChatModel(provider: AgentProviderId, id: string): boolean {
   if (provider === "anthropic") return n.includes("claude");
   if (provider === "gemini") return n.includes("gemini");
   if (provider === "deepseek") return n.includes("deepseek");
+  if (provider === "openrouter") {
+    if (outputModalities?.length)
+      return outputModalities.includes("text") && outputModalities.length === 1;
+    return !/(embed|whisper|tts|dall-e|moderation)/.test(n);
+  }
   return true;
 }
 

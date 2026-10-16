@@ -12,6 +12,7 @@ import {
 } from "../../core/eagle-import";
 import { readEagleShortcuts } from "../../core/eagle-shortcuts";
 import { createManualSave } from "../../core/manual-import";
+import { importMymindExport } from "../../core/mymind-import";
 import { extractPageAssets } from "../../core/page-extract";
 import { persistSave } from "../../core/persist-save";
 import { enqueue, normalizeUrl } from "../../core/pipeline/enqueue";
@@ -216,6 +217,20 @@ export const savesImportSourceQueries = {
         error: "Couldn't import those bookmarks. Try another file.",
       };
     return { ok: true, imported, skipped: failed.length };
+  },
+
+  async "saves.importMymind"(): Promise<QueryResult<"saves.importMymind">> {
+    const win = BrowserWindow.getFocusedWindow();
+    const options = {
+      properties: ["openDirectory" as const],
+      message: "Choose your mymind export folder",
+    };
+    const picked = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options);
+    const path = picked.filePaths[0];
+    if (picked.canceled || !path) return { ok: false, reason: "cancelled" };
+    return importMymindExport(path);
   },
 
   "saves.extractPageAssets": query(

@@ -10,6 +10,7 @@ import {
   clampImagePoint,
   cropContains,
   inImage,
+  isFullImageCrop,
   lockCropAspect,
   nudgeCrop,
   resizeCrop,
@@ -93,8 +94,12 @@ export function createImageGestures({
       const raw = pointFromClient(event.clientX, event.clientY);
       const point = clampImagePoint(raw);
       const moving =
-        mode === "crop" && !handle && !!draft && cropContains(draft, point);
-      if (mode !== "view" && !handle && !moving && !inImage(raw)) return;
+        mode === "crop" &&
+        inImage(raw) &&
+        !handle &&
+        !!draft &&
+        !isFullImageCrop(draft) &&
+        cropContains(draft, point);
       event.preventDefault();
       event.stopPropagation();
       gestureMoved.current = false;

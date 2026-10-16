@@ -7,7 +7,7 @@ import sharp from "sharp";
 
 const MAX_EDGE = 1024;
 
-export async function renderThumbnailPng(
+export async function renderThumbnail(
   input: string | Buffer,
 ): Promise<Buffer | null> {
   try {
@@ -19,7 +19,7 @@ export async function renderThumbnailPng(
         fit: "inside",
         withoutEnlargement: true,
       })
-      .png()
+      .webp({ quality: 80 })
       .toBuffer();
   } catch {
     return null;

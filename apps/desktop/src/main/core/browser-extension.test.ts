@@ -48,6 +48,20 @@ describe("installBrowserExtension", () => {
     expect(showItemInFolder).toHaveBeenCalledWith(target);
   });
 
+  it("copies the Firefox build to its own Downloads folder", async () => {
+    const build = join(root, "extension", ".output", "firefox-mv3");
+    mkdirSync(build, { recursive: true });
+    writeFileSync(join(build, "manifest.json"), "{}");
+
+    await expect(installBrowserExtension("firefox")).resolves.toEqual({
+      ok: true,
+      path: join(downloads, "Pond Extension Firefox"),
+    });
+    expect(
+      existsSync(join(downloads, "Pond Extension Firefox", "manifest.json")),
+    ).toBe(true);
+  });
+
   it("fails without touching Downloads when no build exists", async () => {
     const result = await installBrowserExtension();
     expect(result.ok).toBe(false);

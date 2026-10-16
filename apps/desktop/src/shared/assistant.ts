@@ -22,6 +22,28 @@ const host = {
 
 export const ASSISTANT_MODELS = [
   {
+    id: "codex",
+    name: "Codex Default",
+    provider: "Codex",
+    model: "default",
+    local: true,
+    needsKey: false,
+    setupUrl: "https://learn.chatgpt.com/docs/cli",
+    quality: "custom",
+    capabilities: { ...text, customModel: true },
+  },
+  {
+    id: "claude-code",
+    name: "Claude Code Default",
+    provider: "Claude Code",
+    model: "default",
+    local: true,
+    needsKey: false,
+    setupUrl: "https://code.claude.com/docs/en/setup",
+    quality: "custom",
+    capabilities: { ...text, customModel: true },
+  },
+  {
     id: "anthropic",
     name: "Claude Opus 5",
     provider: "Anthropic",
@@ -200,6 +222,28 @@ export const ASSISTANT_MODELS = [
     capabilities: text,
   },
   {
+    id: "opencode-go",
+    name: "DeepSeek V4.1 Flash",
+    provider: "OpenCode Go",
+    model: "deepseek-v4.1-flash",
+    local: false,
+    needsKey: true,
+    setupUrl: "https://opencode.ai/docs/go",
+    quality: "custom",
+    capabilities: text,
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    provider: "OpenRouter",
+    model: "openrouter/auto",
+    local: false,
+    needsKey: true,
+    setupUrl: "https://openrouter.ai/keys",
+    quality: "custom",
+    capabilities: chat,
+  },
+  {
     id: "ollama",
     name: "Llama 3.2",
     provider: "Ollama",
@@ -232,10 +276,15 @@ export function assistantCatalog(id: string): AssistantCatalog | undefined {
   return ASSISTANT_MODELS.find((model) => model.id === id);
 }
 
-export function offeredProviders(kind: "cloud" | "local") {
-  return ASSISTANT_MODELS.filter((model) =>
-    kind === "local" ? model.local : !model.local,
-  );
+export type ProviderGroup = "cloud" | "local" | "subscription";
+
+export function providerGroup(id: AssistantProvider): ProviderGroup {
+  if (id === "codex" || id === "claude-code") return "subscription";
+  return assistantCatalog(id)?.local ? "local" : "cloud";
+}
+
+export function offeredProviders(kind: ProviderGroup) {
+  return ASSISTANT_MODELS.filter((model) => providerGroup(model.id) === kind);
 }
 
 export function gatewayCreator(id: AssistantProvider): string | undefined {

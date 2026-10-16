@@ -1,4 +1,5 @@
 import { Button, Dialog } from "@pond/ui";
+import type { ExtensionBrowser } from "@shared/browser-extension-contracts";
 import { useReducedMotion } from "motion/react";
 import { useState } from "react";
 import installPoster from "@/assets/extension-install.jpg";
@@ -8,8 +9,8 @@ import styles from "./styles.module.css";
 
 type Status =
   | { kind: "idle" }
-  | { kind: "saving" }
-  | { kind: "saved" }
+  | { kind: "saving"; browser: ExtensionBrowser }
+  | { kind: "saved"; browser: ExtensionBrowser }
   | { kind: "error"; message: string };
 
 export function BrowserExtensionDialog({
@@ -22,13 +23,16 @@ export function BrowserExtensionDialog({
   const reduceMotion = useReducedMotion();
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
-  async function download(): Promise<void> {
-    setStatus({ kind: "saving" });
+  async function download(browser: ExtensionBrowser): Promise<void> {
+    setStatus({ kind: "saving", browser });
     try {
-      const result = await window.pond.query("extension.install", {});
+      const result = await window.pond.query(
+        "extension.install",
+        browser === "firefox" ? { browser } : {},
+      );
       setStatus(
         result.ok
-          ? { kind: "saved" }
+          ? { kind: "saved", browser }
           : { kind: "error", message: result.error },
       );
     } catch (cause) {
@@ -71,22 +75,42 @@ export function BrowserExtensionDialog({
               Browser Extension
             </Dialog.Title>
             <Dialog.Description>
-              Save pages and images from Chrome, Arc, Brave, or Edge into your
-              library.
+              Save pages and images from Chrome, Arc, Brave, Edge, Firefox, or
+              Zen into your library.
             </Dialog.Description>
-            <ol className={styles.steps}>
-              <li>
-                Click Download to add a Pond Extension folder to Downloads.
-              </li>
-              <li>
-                Open <code>chrome://extensions</code> and turn on Developer
-                mode.
-              </li>
-              <li>Click Load unpacked and choose the Pond Extension folder.</li>
-            </ol>
+            {status.kind === "saved" && status.browser === "firefox" ? (
+              <ol className={styles.steps}>
+                <li>
+                  Click Download for Firefox to add a Pond Extension Firefox
+                  folder to Downloads.
+                </li>
+                <li>
+                  Open <code>about:debugging</code> and choose this browser.
+                </li>
+                <li>
+                  Click Load Temporary Add-on and choose manifest.json in that
+                  folder.
+                </li>
+              </ol>
+            ) : (
+              <ol className={styles.steps}>
+                <li>
+                  Click Download to add a Pond Extension folder to Downloads.
+                </li>
+                <li>
+                  Open <code>chrome://extensions</code> and turn on Developer
+                  mode.
+                </li>
+                <li>
+                  Click Load unpacked and choose the Pond Extension folder.
+                </li>
+              </ol>
+            )}
             {status.kind === "saved" ? (
               <p className={styles.status}>
-                Pond Extension is in your Downloads folder.
+                {status.browser === "firefox"
+                  ? "Pond Extension Firefox is in your Downloads folder."
+                  : "Pond Extension is in your Downloads folder."}
               </p>
             ) : null}
             {status.kind === "error" ? (
@@ -94,8 +118,19 @@ export function BrowserExtensionDialog({
             ) : null}
             <div className={styles.actions}>
               <Button
-                loading={status.kind === "saving"}
-                onClick={() => void download()}
+                variant="secondary"
+                loading={
+                  status.kind === "saving" && status.browser === "firefox"
+                }
+                onClick={() => void download("firefox")}
+              >
+                Download for Firefox
+              </Button>
+              <Button
+                loading={
+                  status.kind === "saving" && status.browser === "chrome"
+                }
+                onClick={() => void download("chrome")}
               >
                 Download
               </Button>

@@ -45,6 +45,8 @@ export function TweetCard({
         </p>
       ) : null}
 
+      {data.replyTo ? <QuotedCard data={data.replyTo} /> : null}
+
       {text ? <Body text={text} lang={data.lang} /> : null}
 
       {media && media.length > 0 ? <MediaGrid media={media} /> : null}

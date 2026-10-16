@@ -42,8 +42,10 @@ it("shows persisted transforms and keeps a cancelled crop draft out of storage",
   expect(inspector.host.textContent).toContain("100%");
   await act(async () => inspector.button("Crop").click());
   expect(inspector.button("Apply Crop").disabled).toBe(true);
+  expect(inspector.host.querySelectorAll("[data-handle]")).toHaveLength(8);
   expect(image?.style.transform).toBe("none");
   if (!frame) throw new Error("Missing image inspection frame");
+  expect(frame.getAttribute("data-mode")).toBe("crop");
   vi.spyOn(frame, "getBoundingClientRect").mockReturnValue(
     new DOMRect(0, 0, 400, 400),
   );
@@ -83,6 +85,48 @@ it("shows persisted transforms and keeps a cancelled crop draft out of storage",
   expect(pool.get(IMAGE_INSPECTOR_SAVE.id)?.crop).toEqual(
     IMAGE_INSPECTOR_SAVE.crop,
   );
+});
+
+it("starts a crop outside the image and clamps its origin to the edge", async () => {
+  await inspector.render({
+    ...IMAGE_INSPECTOR_SAVE,
+    width: 200,
+    height: 400,
+  });
+  await act(async () => inspector.button("Crop").click());
+  const frame = inspector.prepareFrame();
+
+  await act(async () => {
+    frame.dispatchEvent(
+      new MouseEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 40,
+        clientY: 100,
+      }),
+    );
+    frame.dispatchEvent(
+      new MouseEvent("pointermove", {
+        bubbles: true,
+        clientX: 200,
+        clientY: 300,
+      }),
+    );
+    frame.dispatchEvent(
+      new MouseEvent("pointerup", {
+        bubbles: true,
+        clientX: 200,
+        clientY: 300,
+      }),
+    );
+  });
+
+  const selection =
+    inspector.host.querySelector<HTMLElement>('[data-cropping=""]');
+  expect(selection?.style.left).toBe("0%");
+  expect(selection?.style.top).toBe("25%");
+  expect(selection?.style.width).toBe("50%");
+  expect(selection?.style.height).toBe("50%");
 });
 
 it("pinches to zoom at the pointer", async () => {

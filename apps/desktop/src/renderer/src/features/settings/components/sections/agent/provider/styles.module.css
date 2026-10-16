@@ -23,6 +23,11 @@
 .input {
   width: 100%;
 }
+.instructions {
+  margin: 0;
+  font-size: var(--ds-text-sm);
+  color: var(--ds-gray-11);
+}
 .error {
   margin: 0;
   font-size: var(--ds-text-sm);

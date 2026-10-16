@@ -8,6 +8,9 @@ export const NATIVE_HOST_NAME = "so.pond.host";
 /** Pinned by `manifest.key` in the extension; native-host `allowed_origins` must match. */
 export const EXTENSION_ID = "ihciihlcdkopghlpabpmnodncfdboplb";
 
+/** Firefox rejects `manifest.key`, so the gecko id is pinned here for `allowed_extensions`. */
+export const FIREFOX_EXTENSION_ID = "desktop@pond.so";
+
 export const nativeRequestSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hello") }),
   z.object({

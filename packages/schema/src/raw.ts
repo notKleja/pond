@@ -130,6 +130,7 @@ export interface CaptureExtras {
   externalLink?: string;
   faviconUrl?: string;
   publisher?: string;
+  replyParentUnavailable?: boolean;
   subreddit?: string;
   tileType?: string;
 }
@@ -148,6 +149,7 @@ export interface Capture {
   duration?: number;
   upstream?: CaptureUpstream;
   quoted?: Capture;
+  replyTo?: Capture;
   card?: CaptureLinkCard;
   isReply?: boolean;
   replyingTo?: string;
@@ -170,14 +172,20 @@ export function walkCaptureMedia(
   if (!capture) return [];
   const out: CaptureMedia[] = [];
   const seen = new Set<string>();
-  let current: Capture | undefined = capture;
-  for (let depth = 0; current && depth <= QUOTE_DEPTH_CAP; depth += 1) {
-    for (const m of current.media ?? []) {
-      if (seen.has(m.url)) continue;
-      seen.add(m.url);
-      out.push(m);
+  const pending: Capture[] = [capture];
+  let depth = 0;
+  while (pending.length > 0 && depth <= QUOTE_DEPTH_CAP) {
+    const level = pending.splice(0, pending.length);
+    depth += 1;
+    for (const current of level) {
+      for (const m of current.media ?? []) {
+        if (seen.has(m.url)) continue;
+        seen.add(m.url);
+        out.push(m);
+      }
+      if (current.quoted) pending.push(current.quoted);
+      if (current.replyTo) pending.push(current.replyTo);
     }
-    current = current.quoted;
   }
   return out;
 }

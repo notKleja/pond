@@ -74,6 +74,29 @@ describe("buildTweetCardData", () => {
     expect(data?.quoted?.text).toBe("original thought");
   });
 
+  it("keeps the parent post on a reply card", () => {
+    const data = buildTweetCardData({
+      id: "1",
+      source: "twitter",
+      url: "https://x.com/a/status/1",
+      description: "this reply",
+      isReply: true,
+      replyingTo: "bob",
+      media: [],
+      replyTo: {
+        id: "2",
+        source: "twitter",
+        url: "https://x.com/bob/status/2",
+        description: "the original point",
+        author: { handle: "bob", name: "Bob" },
+        media: [],
+      },
+    });
+    expect(data?.isReply).toBe(true);
+    expect(data?.replyTo?.text).toBe("the original point");
+    expect(data?.replyTo?.author.handle).toBe("bob");
+  });
+
   it("keeps http video posters", () => {
     const data = buildTweetCardData({
       id: "1",

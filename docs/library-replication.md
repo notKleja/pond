@@ -7,10 +7,9 @@ SQLite database, WAL file, or journal from the exchange folder.
 
 Both computers must run a build of this fork that includes the replication
 protocol. The Windows runtime and cross-platform filesystem fixtures were
-tested during this port. An unsigned macOS artifact can be built and downloaded
-from the Package desktop workflow after CI succeeds. It was not exercised on a
-physical Mac during the Windows port, so keep verified backups while validating
-the first Mac round trip.
+tested during this port. The macOS build was not exercised on a physical Mac
+during the Windows port, so keep verified backups while validating the first
+Mac round trip.
 
 ## Set up a second computer
 

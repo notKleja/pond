@@ -35,18 +35,24 @@ interface AccountIdentityPatch {
   avatarCheckedAt?: string;
 }
 
+function failedSessionImport(
+  source: Source,
+  reason: string,
+): SessionImportResponse {
+  broadcast(IPC.sessionImportFailed, { source, reason });
+  return { ok: false, imported: 0, connected: false, reason };
+}
+
 export async function importSessionCookies(
   source: Source,
   cookies: ExtensionCookie[],
 ): Promise<SessionImportResponse> {
   const domain = primaryDomainForSource(source);
   if (!domain) {
-    return {
-      ok: false,
-      imported: 0,
-      connected: false,
-      reason: `source ${source} has no cookie domain configured`,
-    };
+    return failedSessionImport(
+      source,
+      `source ${source} has no cookie domain configured`,
+    );
   }
 
   const allowedHost = domain.replace(/^\./, "").toLowerCase();
@@ -56,12 +62,7 @@ export async function importSessionCookies(
   });
 
   if (filtered.length === 0) {
-    return {
-      ok: false,
-      imported: 0,
-      connected: false,
-      reason: "no_cookies_for_source_domain",
-    };
+    return failedSessionImport(source, "no_cookies_for_source_domain");
   }
 
   if (
@@ -69,12 +70,7 @@ export async function importSessionCookies(
       isAuthCookieName(source, cookie.name, cookie.value),
     )
   ) {
-    return {
-      ok: false,
-      imported: 0,
-      connected: false,
-      reason: "no_auth_cookies_in_payload",
-    };
+    return failedSessionImport(source, "no_auth_cookies_in_payload");
   }
 
   const identityKey = identityKeyFromCookies(source, filtered);
@@ -84,12 +80,7 @@ export async function importSessionCookies(
     log.info(
       `[pond session-import] ${source}: cookies present but /api/me.json did not return a user`,
     );
-    return {
-      ok: false,
-      imported: 0,
-      connected: false,
-      reason: "session_not_authenticated",
-    };
+    return failedSessionImport(source, "session_not_authenticated");
   }
   if (
     source === "cosmos" &&
@@ -99,12 +90,7 @@ export async function importSessionCookies(
     log.info(
       `[pond session-import] ${source}: cookies present but GraphQL me did not return a user`,
     );
-    return {
-      ok: false,
-      imported: 0,
-      connected: false,
-      reason: "session_not_authenticated",
-    };
+    return failedSessionImport(source, "session_not_authenticated");
   }
   const account = resolution.account;
 

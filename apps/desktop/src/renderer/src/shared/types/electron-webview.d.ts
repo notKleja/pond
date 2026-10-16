@@ -4,6 +4,7 @@ import type { DetailedHTMLProps, HTMLAttributes } from "react";
 export interface PondWebviewElement extends HTMLElement {
   src: string;
   getWebContentsId(): number;
+  reload(): void;
 }
 
 declare module "react" {

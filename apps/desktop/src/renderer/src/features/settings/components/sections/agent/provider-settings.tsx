@@ -4,6 +4,8 @@ import {
   type AssistantProvider,
   assistantCatalog,
   offeredProviders,
+  type ProviderGroup,
+  providerGroup,
 } from "@shared/assistant";
 import type { ReactNode } from "react";
 import { AnimateHeight } from "@/shared/components/animate-height";
@@ -24,6 +26,12 @@ export const GROUPS = [
     title: "Local Providers",
     description: "Connect to a model server you run.",
     empty: "No local providers",
+  },
+  {
+    kind: "subscription" as const,
+    title: "Subscriptions",
+    description: "Use Codex or Claude Code signed in on this Mac.",
+    empty: "No subscription connections",
   },
 ];
 
@@ -53,7 +61,7 @@ export function addedProvidersWith(
 }
 
 export function listedCatalog(
-  kind: "cloud" | "local",
+  kind: ProviderGroup,
   agent: AgentPrefs | null | undefined,
   keys: KeyRow[],
 ) {
@@ -63,7 +71,7 @@ export function listedCatalog(
     if (seen.has(id)) return;
     const entry = assistantCatalog(id);
     if (!entry) return;
-    if (kind === "local" ? !entry.local : entry.local) return;
+    if (providerGroup(entry.id) !== kind) return;
     if (!isListedProvider(entry.id, agent, keys)) return;
     seen.add(id);
     listed.push(entry);
@@ -89,7 +97,7 @@ function ProviderList({ children }: { children: ReactNode }) {
 }
 
 function remainingProviders(
-  kind: "cloud" | "local",
+  kind: ProviderGroup,
   agent: AgentPrefs,
   keys: KeyRow[],
 ) {
@@ -161,7 +169,7 @@ function AddProviderMenu({
   keys,
   onAdd,
 }: {
-  kind: "cloud" | "local";
+  kind: ProviderGroup;
   agent: AgentPrefs;
   keys: KeyRow[];
   onAdd: (provider: AssistantProvider) => void;
@@ -175,7 +183,11 @@ function AddProviderMenu({
           size="xs"
           variant="secondary"
           aria-label={
-            kind === "local" ? "Add Local Provider" : "Add Cloud Provider"
+            kind === "subscription"
+              ? "Add Subscription Provider"
+              : kind === "local"
+                ? "Add Local Provider"
+                : "Add Cloud Provider"
           }
         >
           Add Provider
@@ -185,7 +197,11 @@ function AddProviderMenu({
             <Menu.Popup
               className={styles["add-popup"]}
               aria-label={
-                kind === "local" ? "Add Local Provider" : "Add Cloud Provider"
+                kind === "subscription"
+                  ? "Add Subscription Provider"
+                  : kind === "local"
+                    ? "Add Local Provider"
+                    : "Add Cloud Provider"
               }
             >
               <Menu.Input

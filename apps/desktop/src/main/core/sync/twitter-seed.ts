@@ -50,6 +50,21 @@ export function buildTwitterBookmarkSeed(
     metrics: rich.metrics,
   };
   if (rich.quoted) draft.quoted = richQuoted(rich.quoted);
+  if (rich.replyTo) {
+    draft.isReply = true;
+    if (rich.replyTo.handle) draft.replyingTo = rich.replyTo.handle;
+    draft.replyTo = {
+      source: "twitter",
+      id: rich.replyTo.tweetId,
+      url: rich.replyTo.url,
+      text: "",
+      author: {
+        handle: rich.replyTo.handle,
+        name: rich.replyTo.handle,
+      },
+      media: [],
+    };
+  }
   if (rich.card) draft.card = rich.card;
   if (publishedAt) draft.publishedAt = publishedAt.toISOString();
 

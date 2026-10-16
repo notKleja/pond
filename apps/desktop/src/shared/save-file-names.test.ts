@@ -8,6 +8,7 @@ import {
   posterFilename,
   thumbnailFilename,
   videoFilename,
+  webpThumbnailFilename,
 } from "./save-file-names";
 
 describe("harvested filenames", () => {
@@ -35,15 +36,25 @@ describe("harvested filenames", () => {
   });
 });
 
-describe("Eagle thumbnail suffix", () => {
-  it("appends _thumbnail.png to the original basename", () => {
-    expect(thumbnailFilename("layout.psd")).toBe("layout.psd_thumbnail.png");
-    expect(thumbnailFilename("media-1.jpg")).toBe("media-1.jpg_thumbnail.png");
+describe("thumbnail suffix", () => {
+  it("appends _thumbnail.webp to the original basename", () => {
+    expect(thumbnailFilename("layout.psd")).toBe("layout.psd_thumbnail.webp");
+    expect(thumbnailFilename("media-1.jpg")).toBe("media-1.jpg_thumbnail.webp");
   });
 
-  it("detects Eagle and Pond thumbnail names", () => {
+  it("gives regenerated thumbnails a WebP extension", () => {
+    expect(webpThumbnailFilename("image.png_thumbnail.png")).toBe(
+      "image.png_thumbnail.webp",
+    );
+    expect(webpThumbnailFilename("thumbnail.png")).toBe("thumbnail.webp");
+    expect(webpThumbnailFilename("preview")).toBe("preview.webp");
+  });
+
+  it("detects WebP, PNG, and text-card thumbnail names", () => {
+    expect(isThumbnailFilename("layout.psd_thumbnail.webp")).toBe(true);
     expect(isThumbnailFilename("layout.psd_thumbnail.png")).toBe(true);
     expect(isThumbnailFilename("thumbnail.png")).toBe(true);
+    expect(isThumbnailFilename("thumbnail.webp")).toBe(true);
     expect(isThumbnailFilename("thumbnail-dark.png")).toBe(true);
     expect(isThumbnailFilename("thumbnail-concept.psd")).toBe(false);
   });
@@ -54,6 +65,9 @@ describe("inferKindFromFilename", () => {
     expect(inferKindFromFilename("media-1.jpg")).toBe("image");
     expect(inferKindFromFilename("video-1.mp4")).toBe("video");
     expect(inferKindFromFilename("poster-1.jpg")).toBe("poster");
+    expect(inferKindFromFilename("media-1.jpg_thumbnail.webp")).toBe(
+      "thumbnail",
+    );
     expect(inferKindFromFilename("media-1.jpg_thumbnail.png")).toBe(
       "thumbnail",
     );

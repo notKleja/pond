@@ -5,6 +5,10 @@ export {
   useSavePaging,
   useSaves,
 } from "./hooks/use-saves";
-export { ensureSaves, reloadSaves } from "./lib/ensure-saves";
+export {
+  ensureSaves,
+  invalidatePendingSaveHydration,
+  reloadSaves,
+} from "./lib/ensure-saves";
 export { bulkMutation, mutateSave, trashSaves } from "./lib/mutate";
 export { onPoolDirty, pool, savesStore, upsertSave } from "./state/pool";

@@ -104,9 +104,65 @@ describe("checkProviderKey", () => {
     );
     expect(result.ok).toBe(true);
   });
+
+  it("checks OpenCode Go through its authenticated models endpoint", async () => {
+    const result = await checkProviderKey(
+      { provider: "opencode-go", key: "go-test", ...bases },
+      async (url, options) => {
+        expect(url).toBe("https://opencode.ai/inference/go/v1/models");
+        expect(options?.headers).toEqual({
+          Authorization: "Bearer go-test",
+        });
+        return Response.json({ data: [{ id: "deepseek-v4-flash" }] });
+      },
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("validates OpenRouter credentials against the authenticated key endpoint", async () => {
+    const result = await checkProviderKey(
+      { provider: "openrouter", key: "sk-or-test", ...bases },
+      async (url, options) => {
+        expect(url).toBe("https://openrouter.ai/api/v1/key");
+        expect(options?.headers).toEqual({
+          Authorization: "Bearer sk-or-test",
+        });
+        return Response.json({ data: { label: "test" } });
+      },
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects invalid OpenRouter credentials even though its catalog is public", async () => {
+    const result = await checkProviderKey(
+      { provider: "openrouter", key: "sk-or-bad", ...bases },
+      async () => new Response(null, { status: 401 }),
+    );
+    expect(result).toEqual({
+      ok: false,
+      error:
+        "OpenRouter rejected this key or its permissions. Check it in Settings.",
+    });
+  });
 });
 
 describe("complete model discovery", () => {
+  it("requests only text-capable OpenRouter models", async () => {
+    const result = await fetchProviderModels(
+      { provider: "openrouter", key: "sk-or-test", ...bases },
+      async (url, options) => {
+        expect(url).toBe(
+          "https://openrouter.ai/api/v1/models/user?output_modalities=text",
+        );
+        expect(options?.headers).toEqual({
+          Authorization: "Bearer sk-or-test",
+        });
+        return Response.json({ data: [] });
+      },
+    );
+    expect(result.ok).toBe(true);
+  });
+
   it("augments Ollama inventory with capabilities from the native detail endpoint", async () => {
     const requests: Array<{
       url: string;

@@ -1,4 +1,5 @@
-import type { CaptureMedia, RawJson } from "@pond/schema/raw";
+import type { NewSave, Source } from "@pond/schema/db";
+import type { Capture, CaptureMedia, RawJson } from "@pond/schema/raw";
 import { QUOTE_DEPTH_CAP } from "@pond/schema/raw";
 import log from "electron-log/main.js";
 import { persistSave } from "../../persist-save";
@@ -12,8 +13,12 @@ import {
   renderThreadsCardPng,
   renderTweetCardPng,
 } from "../../render-card";
+import { TransientError } from "../extractors/errors";
 import { readSave, type WriteFileArgs } from "./apply";
-import { inlineCaptureAvatars } from "./inline-card-avatars";
+import {
+  type InlinedAvatars,
+  inlineCaptureAvatars,
+} from "./inline-card-avatars";
 
 const TWEET_SCREENSHOT_LIGHT_KIND = "tweet_screenshot_light";
 const TWEET_SCREENSHOT_DARK_KIND = "tweet_screenshot_dark";
@@ -24,10 +29,48 @@ function quoteScreenshotKind(depth: number, scheme: "light" | "dark"): string {
 
 const CAPTURE_TWEET_VERSION = 12;
 
-interface CaptureTweetResult {
+export interface CaptureTweetResult {
   captured: number;
   authWall: boolean;
   mediaAdded: boolean;
+  replyParentPending: boolean;
+}
+
+interface CaptureTweetOptions {
+  nativeOnly?: boolean;
+  retryPendingParent?: boolean;
+}
+
+export interface CaptureTweetSave {
+  id: string;
+  source: Source;
+  sourceId: string;
+  url: string;
+  author: string | null;
+  rawJson: RawJson | null;
+}
+
+interface PersistSaveOptions {
+  actorReason: string;
+  newFiles?: WriteFileArgs[];
+  replaceFilesWithKind?: WriteFileArgs["kind"] | WriteFileArgs["kind"][];
+}
+
+export interface CaptureTweetPorts<SaveRow extends CaptureTweetSave> {
+  readSave(id: string): Promise<SaveRow | null>;
+  persistSave(
+    id: string,
+    patch: Partial<NewSave>,
+    options: PersistSaveOptions,
+  ): Promise<void>;
+  screenshotTweetDual: typeof screenshotTweetDual;
+  screenshotThreadsDual: typeof screenshotThreadsDual;
+  renderTweetCardPng: typeof renderTweetCardPng;
+  renderThreadsCardPng: typeof renderThreadsCardPng;
+  inlineCaptureAvatars(
+    capture: Capture,
+    save: SaveRow,
+  ): Promise<InlinedAvatars>;
 }
 
 function readCaptureTweetVersion(rawJson: RawJson | null): number {
@@ -39,30 +82,90 @@ export function isCaptureTweetStale(rawJson: RawJson | null): boolean {
   return readCaptureTweetVersion(rawJson) < CAPTURE_TWEET_VERSION;
 }
 
-export async function runCaptureTweet(
+function needsReplyParentEnrichment(rawJson: RawJson | null): boolean {
+  const parent = rawJson?.capture?.replyTo;
+  if (!parent?.url) return false;
+  if (rawJson?.capture?.extras?.replyParentUnavailable === true) return false;
+  return !(
+    parent.description ||
+    parent.title ||
+    parent.media.length > 0 ||
+    parent.quoted
+  );
+}
+
+export function createCaptureTweetRunner<SaveRow extends CaptureTweetSave>(
+  ports: CaptureTweetPorts<SaveRow>,
+) {
+  return (
+    saveId: string,
+    opts?: CaptureTweetOptions,
+  ): Promise<CaptureTweetResult> =>
+    runCaptureTweetWithPorts(saveId, opts, ports);
+}
+
+export function createCaptureTweetTask(
+  captureTweet: (
+    saveId: string,
+    opts?: CaptureTweetOptions,
+  ) => Promise<CaptureTweetResult>,
+) {
+  return async (saveId: string): Promise<void> => {
+    const result = await captureTweet(saveId, { retryPendingParent: true });
+    if (result.authWall && result.captured === 0) {
+      throw new TransientError(
+        "capture_tweet: X auth wall (session may be expired)",
+      );
+    }
+    if (result.replyParentPending) {
+      throw new TransientError("capture_tweet: reply parent still pending");
+    }
+  };
+}
+
+async function runCaptureTweetWithPorts<SaveRow extends CaptureTweetSave>(
   saveId: string,
-  opts?: { nativeOnly?: boolean },
+  opts: CaptureTweetOptions | undefined,
+  ports: CaptureTweetPorts<SaveRow>,
 ): Promise<CaptureTweetResult> {
   const idle: CaptureTweetResult = {
     captured: 0,
     authWall: false,
     mediaAdded: false,
+    replyParentPending: false,
   };
-  const save = await readSave(saveId);
+  const save = await ports.readSave(saveId);
   if (!save) return idle;
   if (save.source !== "twitter" && save.source !== "threads") return idle;
   if (!save.sourceId) return idle;
 
-  if (readCaptureTweetVersion(save.rawJson) >= CAPTURE_TWEET_VERSION) {
+  if (
+    readCaptureTweetVersion(save.rawJson) >= CAPTURE_TWEET_VERSION &&
+    !(opts?.retryPendingParent && needsReplyParentEnrichment(save.rawJson))
+  ) {
     log.debug("[pond pipeline:capture-tweet] up to date, skipping", saveId);
     return idle;
   }
 
-  const rendered = await tryNativeRender(saveId, save);
+  let rawJson = save.rawJson;
+  if (!opts?.nativeOnly) {
+    const enrichment = await fillReplyParent(saveId, save, ports);
+    if (enrichment === "enriched" || enrichment === "unavailable") {
+      const refreshed = await ports.readSave(saveId);
+      if (refreshed?.rawJson) rawJson = refreshed.rawJson;
+    }
+  }
+
+  const rendered = await tryNativeRender(saveId, { ...save, rawJson }, ports);
   if (rendered) {
-    await finalizeRawJson(saveId, save.rawJson, [], { stampVersion: true });
+    await finalizeRawJson(saveId, rawJson, [], { stampVersion: true }, ports);
     log.info("[pond pipeline:capture-tweet] native card done", { saveId });
-    return { captured: 2, authWall: false, mediaAdded: false };
+    return {
+      captured: 2,
+      authWall: false,
+      mediaAdded: false,
+      replyParentPending: needsReplyParentEnrichment(rawJson),
+    };
   }
 
   if (opts?.nativeOnly) {
@@ -77,41 +180,54 @@ export async function runCaptureTweet(
   let authWall = false;
   const harvested: CaptureMedia[] = [];
 
-  const main = await captureVariants(saveId, {
-    url: save.url,
-    sourceId: save.sourceId,
-    source: save.source,
-    lightKind: TWEET_SCREENSHOT_LIGHT_KIND,
-    darkKind: TWEET_SCREENSHOT_DARK_KIND,
-    lightFilename: "tweet-light.png",
-    darkFilename: "tweet-dark.png",
-    harvestMedia: false,
-  });
+  const main = await captureVariants(
+    saveId,
+    {
+      url: save.url,
+      sourceId: save.sourceId,
+      source: save.source,
+      lightKind: TWEET_SCREENSHOT_LIGHT_KIND,
+      darkKind: TWEET_SCREENSHOT_DARK_KIND,
+      lightFilename: "tweet-light.png",
+      darkFilename: "tweet-dark.png",
+      harvestMedia: false,
+    },
+    ports,
+  );
   captured += main.captured;
   if (main.authWall) authWall = true;
 
   if (main.authWall && main.captured === 0) {
-    return { captured, authWall: true, mediaAdded: false };
+    return {
+      captured,
+      authWall: true,
+      mediaAdded: false,
+      replyParentPending: needsReplyParentEnrichment(rawJson),
+    };
   }
 
   let completed = main.complete;
-  let nextUrl = main.quotedUrl ?? quotedUrlFromCapture(save.rawJson);
+  let nextUrl = main.quotedUrl ?? quotedUrlFromCapture(rawJson);
   for (let depth = 1; nextUrl && depth <= QUOTE_DEPTH_CAP; depth += 1) {
     const quotedId =
       save.source === "threads"
         ? parsePostCode(nextUrl)
         : parseTweetId(nextUrl);
     if (!quotedId) break;
-    const quote = await captureVariants(saveId, {
-      url: nextUrl,
-      sourceId: quotedId,
-      source: save.source,
-      lightKind: quoteScreenshotKind(depth, "light"),
-      darkKind: quoteScreenshotKind(depth, "dark"),
-      lightFilename: `tweet-quote${depth}-light.png`,
-      darkFilename: `tweet-quote${depth}-dark.png`,
-      harvestMedia: true,
-    });
+    const quote = await captureVariants(
+      saveId,
+      {
+        url: nextUrl,
+        sourceId: quotedId,
+        source: save.source,
+        lightKind: quoteScreenshotKind(depth, "light"),
+        darkKind: quoteScreenshotKind(depth, "dark"),
+        lightFilename: `tweet-quote${depth}-light.png`,
+        darkFilename: `tweet-quote${depth}-dark.png`,
+        harvestMedia: true,
+      },
+      ports,
+    );
     captured += quote.captured;
     if (quote.media) harvested.push(...quote.media);
     if (quote.authWall) {
@@ -123,9 +239,13 @@ export async function runCaptureTweet(
     nextUrl = quote.quotedUrl;
   }
 
-  const mediaAdded = await finalizeRawJson(saveId, save.rawJson, harvested, {
-    stampVersion: completed,
-  });
+  const mediaAdded = await finalizeRawJson(
+    saveId,
+    rawJson,
+    harvested,
+    { stampVersion: completed },
+    ports,
+  );
 
   log.info("[pond pipeline:capture-tweet] done", {
     saveId,
@@ -133,18 +253,40 @@ export async function runCaptureTweet(
     mediaAdded,
     completed,
   });
-  return { captured, authWall, mediaAdded };
+  return {
+    captured,
+    authWall,
+    mediaAdded,
+    replyParentPending: needsReplyParentEnrichment(rawJson),
+  };
 }
 
-async function tryNativeRender(
+export const runCaptureTweet = createCaptureTweetRunner({
+  readSave,
+  persistSave: async (...args) => {
+    await persistSave(...args);
+  },
+  screenshotTweetDual,
+  screenshotThreadsDual,
+  renderTweetCardPng,
+  renderThreadsCardPng,
+  inlineCaptureAvatars,
+});
+
+export const runCaptureTweetTask = createCaptureTweetTask(runCaptureTweet);
+
+async function tryNativeRender<SaveRow extends CaptureTweetSave>(
   saveId: string,
-  save: NonNullable<Awaited<ReturnType<typeof readSave>>>,
+  save: SaveRow,
+  ports: CaptureTweetPorts<SaveRow>,
 ): Promise<boolean> {
   const capture = save.rawJson?.capture ?? null;
   if (!capture) return false;
-  const inlined = await inlineCaptureAvatars(capture, save);
+  const inlined = await ports.inlineCaptureAvatars(capture, save);
   const render =
-    save.source === "threads" ? renderThreadsCardPng : renderTweetCardPng;
+    save.source === "threads"
+      ? ports.renderThreadsCardPng
+      : ports.renderTweetCardPng;
   const light = await render(inlined.capture, save.author, "light");
   if (!light) return false;
   const dark = await render(inlined.capture, save.author, "dark");
@@ -154,12 +296,14 @@ async function tryNativeRender(
     TWEET_SCREENSHOT_LIGHT_KIND,
     "tweet-light.png",
     light,
+    ports,
   );
   await writeCardPng(
     saveId,
     TWEET_SCREENSHOT_DARK_KIND,
     "tweet-dark.png",
     dark,
+    ports,
   );
   if (inlined.avatarFile) {
     const avatar: WriteFileArgs = {
@@ -171,7 +315,7 @@ async function tryNativeRender(
       avatar.mimeType = inlined.avatarFile.mimeType;
     if (inlined.avatarSourceUrl) avatar.sourceUrl = inlined.avatarSourceUrl;
     try {
-      await persistSave(
+      await ports.persistSave(
         saveId,
         {},
         {
@@ -195,8 +339,9 @@ async function writeCardPng(
   kind: string,
   filename: string,
   card: RenderedCard,
+  ports: Pick<CaptureTweetPorts<CaptureTweetSave>, "persistSave">,
 ): Promise<void> {
-  await persistSave(
+  await ports.persistSave(
     saveId,
     {},
     {
@@ -225,6 +370,7 @@ interface CaptureVariantsArgs {
   lightFilename: string;
   darkFilename: string;
   harvestMedia: boolean;
+  persistScreenshots?: boolean;
 }
 
 interface CaptureVariantsResult {
@@ -233,11 +379,14 @@ interface CaptureVariantsResult {
   authWall: boolean;
   quotedUrl?: string;
   media?: CaptureMedia[];
+  page?: Capture;
+  failureReason?: TweetScreenshotResult["reason"];
 }
 
-async function captureVariants(
+async function captureVariants<SaveRow extends CaptureTweetSave>(
   saveId: string,
   args: CaptureVariantsArgs,
+  ports: CaptureTweetPorts<SaveRow>,
 ): Promise<CaptureVariantsResult> {
   let captured = 0;
   let authWall = false;
@@ -246,12 +395,12 @@ async function captureVariants(
 
   const dual =
     args.source === "threads"
-      ? await screenshotThreadsDual({
+      ? await ports.screenshotThreadsDual({
           url: args.url,
           sourceId: args.sourceId,
           harvestMedia: args.harvestMedia,
         })
-      : await screenshotTweetDual({
+      : await ports.screenshotTweetDual({
           url: args.url,
           sourceId: args.sourceId,
           harvestMedia: args.harvestMedia,
@@ -259,8 +408,16 @@ async function captureVariants(
 
   const light: TweetScreenshotResult = dual.light;
   if (light.ok && light.png) {
-    await writeScreenshot(saveId, args.lightKind, args.lightFilename, light);
-    captured += 1;
+    if (args.persistScreenshots !== false) {
+      await writeScreenshot(
+        saveId,
+        args.lightKind,
+        args.lightFilename,
+        light,
+        ports,
+      );
+      captured += 1;
+    }
     lightOk = true;
   } else if (light.reason === "auth_required") {
     authWall = true;
@@ -268,8 +425,16 @@ async function captureVariants(
 
   const dark: TweetScreenshotResult = dual.dark;
   if (dark.ok && dark.png) {
-    await writeScreenshot(saveId, args.darkKind, args.darkFilename, dark);
-    captured += 1;
+    if (args.persistScreenshots !== false) {
+      await writeScreenshot(
+        saveId,
+        args.darkKind,
+        args.darkFilename,
+        dark,
+        ports,
+      );
+      captured += 1;
+    }
     darkOk = true;
   } else if (dark.reason === "auth_required") {
     authWall = true;
@@ -285,6 +450,25 @@ async function captureVariants(
   };
   if (quotedUrl) result.quotedUrl = quotedUrl;
   if (media) result.media = media;
+  if (dual.page) result.page = dual.page;
+  const variantFailureReason =
+    args.harvestMedia && !dual.page && (light.ok || dark.ok)
+      ? "capture_failed"
+      : light.reason === "auth_required" || dark.reason === "auth_required"
+        ? "auth_required"
+        : light.reason === "timeout" || dark.reason === "timeout"
+          ? "timeout"
+          : light.reason === "capture_failed" ||
+              dark.reason === "capture_failed"
+            ? "capture_failed"
+            : (light.reason ?? dark.reason);
+  result.failureReason =
+    args.harvestMedia && !dual.page && (light.ok || dark.ok)
+      ? dual.pageFailureReason === "timeout" ||
+        dual.pageFailureReason === "capture_failed"
+        ? dual.pageFailureReason
+        : "capture_failed"
+      : (dual.pageFailureReason ?? variantFailureReason);
   return result;
 }
 
@@ -293,9 +477,10 @@ async function writeScreenshot(
   kind: string,
   filename: string,
   result: TweetScreenshotResult,
+  ports: Pick<CaptureTweetPorts<CaptureTweetSave>, "persistSave">,
 ): Promise<void> {
   if (!result.png) return;
-  await persistSave(
+  await ports.persistSave(
     saveId,
     {},
     {
@@ -315,11 +500,12 @@ async function writeScreenshot(
   );
 }
 
-async function finalizeRawJson(
+async function finalizeRawJson<SaveRow extends CaptureTweetSave>(
   saveId: string,
   stored: RawJson | null,
   harvested: CaptureMedia[],
   opts: { stampVersion: boolean },
+  ports: CaptureTweetPorts<SaveRow>,
 ): Promise<boolean> {
   if (!stored) return false;
   const rawJson = structuredClone(stored);
@@ -345,7 +531,7 @@ async function finalizeRawJson(
 
   if (!mediaAdded && !willStamp) return mediaAdded;
 
-  await persistSave(
+  await ports.persistSave(
     saveId,
     { rawJson },
     {
@@ -378,4 +564,98 @@ function parsePostCode(url: string): string | null {
 
 function quotedUrlFromCapture(rawJson: RawJson | null): string | undefined {
   return rawJson?.capture?.quoted?.url || undefined;
+}
+
+async function fillReplyParent<SaveRow extends CaptureTweetSave>(
+  saveId: string,
+  save: SaveRow,
+  ports: CaptureTweetPorts<SaveRow>,
+): Promise<"enriched" | "transient" | "unavailable" | "unchanged"> {
+  if (save.source !== "twitter" && save.source !== "threads") {
+    return "unchanged";
+  }
+  const parentUrl = save.rawJson?.capture?.replyTo?.url;
+  if (!parentUrl || parentUrl === save.url) return "unchanged";
+  if (save.rawJson?.capture?.replyTo?.description) return "unchanged";
+  const parentId =
+    save.source === "threads"
+      ? parsePostCode(parentUrl)
+      : parseTweetId(parentUrl);
+  if (!parentId) return "unchanged";
+  const parent = await captureVariants(
+    saveId,
+    {
+      url: parentUrl,
+      sourceId: parentId,
+      source: save.source,
+      lightKind: "tweet_reply_parent_light",
+      darkKind: "tweet_reply_parent_dark",
+      lightFilename: "tweet-reply-parent-light.png",
+      darkFilename: "tweet-reply-parent-dark.png",
+      harvestMedia: true,
+      persistScreenshots: false,
+    },
+    ports,
+  );
+  if (!parent.page) {
+    if (
+      parent.failureReason === "timeout" ||
+      parent.failureReason === "navigate_failed" ||
+      parent.failureReason === "auth_required" ||
+      parent.failureReason === "capture_failed"
+    ) {
+      return "transient";
+    }
+    await markReplyParentUnavailable(saveId, save.rawJson, ports);
+    return "unavailable";
+  }
+  const merged = await mergeReplyParent(
+    saveId,
+    save.rawJson,
+    parent.page,
+    ports,
+  );
+  return merged ? "enriched" : "unchanged";
+}
+
+async function markReplyParentUnavailable<SaveRow extends CaptureTweetSave>(
+  saveId: string,
+  stored: RawJson | null,
+  ports: CaptureTweetPorts<SaveRow>,
+): Promise<void> {
+  if (!stored?.capture?.replyTo) return;
+  const rawJson = structuredClone(stored);
+  rawJson.capture.extras = {
+    ...rawJson.capture.extras,
+    replyParentUnavailable: true,
+  };
+  await ports.persistSave(
+    saveId,
+    { rawJson },
+    { actorReason: "pipeline:capture-tweet:reply-parent-unavailable" },
+  );
+}
+
+async function mergeReplyParent<SaveRow extends CaptureTweetSave>(
+  saveId: string,
+  stored: RawJson | null,
+  parent: Capture,
+  ports: CaptureTweetPorts<SaveRow>,
+): Promise<boolean> {
+  if (!stored?.capture?.replyTo) return false;
+  const rawJson = structuredClone(stored);
+  const replyTo = rawJson.capture?.replyTo;
+  if (!replyTo) return false;
+  if (parent.description) replyTo.description = parent.description;
+  if (parent.title) replyTo.title = parent.title;
+  if (parent.author) replyTo.author = parent.author;
+  if (parent.publishedAt) replyTo.publishedAt = parent.publishedAt;
+  if (parent.media.length > 0) replyTo.media = parent.media;
+  if (parent.quoted) replyTo.quoted = parent.quoted;
+  await ports.persistSave(
+    saveId,
+    { rawJson },
+    { actorReason: "pipeline:capture-tweet:reply-parent" },
+  );
+  return true;
 }

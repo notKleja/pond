@@ -8,9 +8,14 @@ const GAP_KEY = "pond.itemGap";
 
 export const GAP_STEPS: ReadonlyArray<{ value: number; label: string }> = [
   { value: 0, label: "None" },
+  { value: 4, label: "4 px" },
   { value: 8, label: "Small" },
+  { value: 12, label: "12 px" },
   { value: LIBRARY_SAVE_GAP, label: "Medium" },
+  { value: 24, label: "24 px" },
   { value: 32, label: "Large" },
+  { value: 48, label: "48 px" },
+  { value: GAP_MAX, label: "64 px" },
 ];
 
 export function nearestGap(gap: number): number {

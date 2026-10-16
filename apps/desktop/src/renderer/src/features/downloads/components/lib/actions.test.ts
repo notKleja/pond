@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { DownloadRow } from "@/features/downloads/lib/status-feed";
 import { downloadsSelection } from "@/features/downloads/state/downloads-selection";
 import type { NotifyOptions } from "@/shared/lib/toast";
-import { trashDownloadRows } from "./actions";
+import { clearUnfinishedDownloads, trashDownloadRows } from "./actions";
 
 const row: DownloadRow = {
   id: "save-1",
@@ -66,6 +66,60 @@ it("moves downloads to Trash immediately and offers Undo", async () => {
 
   fake.notices[0]?.action?.onClick();
   expect(fake.undone()).toBe(1);
+});
+
+it("does not offer Undo when no downloads changed", async () => {
+  const fake = createTrashFake("trashed");
+  fake.dependencies.trash = async (ids: readonly string[]) => {
+    fake.trashed.push(ids);
+    return 0;
+  };
+  downloadsSelection.set([row]);
+
+  trashDownloadRows([row], fake.dependencies);
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(downloadsSelection.size()).toBe(1);
+  expect(fake.notices).toEqual([]);
+});
+
+it("handles a rejected Undo request", async () => {
+  const fake = createTrashFake("trashed");
+  fake.dependencies.undo = async () => {
+    throw new Error("Undo unavailable");
+  };
+
+  trashDownloadRows([row], fake.dependencies);
+  await vi.waitFor(() => expect(fake.notices).toHaveLength(1));
+  fake.notices[0]?.action?.onClick();
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
+
+it("reloads hidden downloads after Undo restores them", async () => {
+  const notices: NotifyOptions[] = [];
+  const events: string[] = [];
+
+  await expect(
+    clearUnfinishedDownloads({
+      clear: async () => ({ changed: 2, ids: ["loaded", "hidden"] }),
+      invalidate: () => events.push("invalidate"),
+      reconcile: () => events.push("reconcile"),
+      reload: async () => {
+        events.push("reload");
+      },
+      notify: (options) => {
+        notices.push(options);
+        return options.id;
+      },
+      undo: async () => ({ ok: true }),
+    }),
+  ).resolves.toBe(true);
+  notices[0]?.action?.onClick();
+
+  await vi.waitFor(() =>
+    expect(events).toEqual(["invalidate", "reconcile", "invalidate", "reload"]),
+  );
 });
 
 it("keeps the selection and skips the Undo notice when Trash fails", async () => {

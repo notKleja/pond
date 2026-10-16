@@ -57,16 +57,8 @@ export const WORKERS = {
     await runHarvestMetadata(saveId, HarvestPayloadSchema.parse(payload), ctx);
   },
   capture_tweet: async (saveId) => {
-    const [{ runCaptureTweet }, { TransientError }] = await Promise.all([
-      import("./workers/capture-tweet"),
-      import("./extractors/errors"),
-    ]);
-    const result = await runCaptureTweet(saveId);
-    if (result.authWall && result.captured === 0) {
-      throw new TransientError(
-        "capture_tweet: X auth wall (session may be expired)",
-      );
-    }
+    const { runCaptureTweetTask } = await import("./workers/capture-tweet");
+    await runCaptureTweetTask(saveId);
   },
   render_text_cover: async (saveId) => {
     const { runRenderTextCover } = await import("./workers/render-text-cover");

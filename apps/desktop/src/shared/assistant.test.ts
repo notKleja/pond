@@ -97,12 +97,18 @@ describe("Assistant model policy", () => {
       "perplexity",
       "baseten",
       "deepseek",
+      "opencode-go",
+      "openrouter",
     ]);
     expect(offeredProviders("local").map((model) => model.id)).toEqual([
       "ollama",
       "lmstudio",
     ]);
     expect(gatewayCreator("groq")).toBe("groq");
+    expect(offeredProviders("subscription").map((model) => model.id)).toEqual([
+      "codex",
+      "claude-code",
+    ]);
     expect(gatewayCreator("azure")).toBeUndefined();
   });
 });

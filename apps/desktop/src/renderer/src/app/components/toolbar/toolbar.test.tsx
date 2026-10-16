@@ -287,6 +287,57 @@ describe("breadcrumb toolbar", () => {
     );
   });
 
+  it("leaves an open save before walking folder history", async () => {
+    libraryChrome.setNav({ kind: "folder", id: "parent" });
+    libraryChrome.setNav({ kind: "folder", id: "child" });
+    const previousFolder = navigationHistory.back();
+    expect(previousFolder).toEqual({ kind: "folder", id: "parent" });
+    if (previousFolder) libraryChrome.setNav(previousFolder);
+    const router = await mount("/");
+    await act(async () => router.history.push("/save/demo"));
+    await act(async () => button("Back").click());
+    expect(router.state.location.pathname).toBe("/");
+    expect(libraryChrome.getState().nav).toEqual({
+      kind: "folder",
+      id: "parent",
+    });
+    await act(async () => button("Forward").click());
+    expect(router.state.location.pathname).toBe("/save/demo");
+    await act(async () => button("Back").click());
+    await act(async () => button("Back").click());
+    expect(libraryChrome.getState().nav).toEqual({ kind: "all" });
+    await act(async () => button("Forward").click());
+    expect(router.state.location.pathname).toBe("/");
+    expect(libraryChrome.getState().nav).toEqual({
+      kind: "folder",
+      id: "parent",
+    });
+    await act(async () => button("Forward").click());
+    expect(router.state.location.pathname).toBe("/save/demo");
+    expect(libraryChrome.getState().nav).toEqual({
+      kind: "folder",
+      id: "parent",
+    });
+  });
+
+  it("does not offer folder history while a direct save route is open", async () => {
+    libraryChrome.setNav({ kind: "folder", id: "parent" });
+    await mount("/save/demo");
+    expect(button("Back").disabled).toBe(true);
+    expect(button("Forward").disabled).toBe(true);
+  });
+
+  it("discards the save-forward branch after fresh folder navigation", async () => {
+    libraryChrome.setNav({ kind: "folder", id: "parent" });
+    const router = await mount("/");
+    await act(async () => router.history.push("/save/demo"));
+    await act(async () => button("Back").click());
+    await act(async () => button("Back").click());
+    await act(() => libraryChrome.setNav({ kind: "folder", id: "child" }));
+    expect(button("Forward").disabled).toBe(true);
+    expect(router.state.location.pathname).toBe("/");
+  });
+
   it("opens Assistant from its own control", async () => {
     await mount();
     expect(button("Toggle Details").getAttribute("aria-pressed")).not.toBe(

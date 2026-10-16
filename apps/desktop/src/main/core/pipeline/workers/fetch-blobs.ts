@@ -14,7 +14,7 @@ import { probeImageDims, processImage } from "../../../lib/image-process";
 import { persistSave } from "../../persist-save";
 import { getImageDownloadPrefs } from "../../prefs";
 import { ensureSaveThumbnail } from "../../save-thumbnail";
-import { TransientError } from "../extractors/errors";
+import { TerminalError, TransientError } from "../extractors/errors";
 import {
   QueueWorkerImageDimsSchema,
   QueueWorkerImageResultSchema,
@@ -65,24 +65,10 @@ export async function runFetchBlobs(
     : null;
 
   const results = await fetchMediaBatch(missing, { imageMaxBytes, ...ctx });
-  const fetched = results.flatMap((r) =>
-    r.file ? [{ url: r.url, file: r.file }] : [],
+  const { fetched, transientMisses } = requireFetchedMedia(
+    results,
+    missing.length,
   );
-  const transientMisses = results.filter((r) => r.miss === "transient").length;
-
-  if (fetched.length === 0) {
-    if (transientMisses > 0) {
-      throw new TransientError(
-        `fetch-blobs: ${transientMisses}/${missing.length} media transiently unavailable`,
-      );
-    }
-    log.warn(
-      "[pond pipeline:fetch-blobs] all media permanently unavailable",
-      saveId,
-      missing,
-    );
-    return;
-  }
 
   ctx.signal?.throwIfAborted();
   ctx.reportActivity?.({ phase: "processing" });
@@ -179,6 +165,37 @@ export async function runFetchBlobs(
       `fetch-blobs: ${transientMisses}/${missing.length} media still pending`,
     );
   }
+}
+
+type MediaBatchResults = Awaited<ReturnType<typeof fetchMediaBatch>>;
+
+interface FetchedMediaSummary {
+  fetched: Array<{
+    url: string;
+    file: NonNullable<MediaBatchResults[number]["file"]>;
+  }>;
+  transientMisses: number;
+}
+
+export function requireFetchedMedia(
+  results: MediaBatchResults,
+  requestedCount: number,
+): FetchedMediaSummary {
+  const fetched = results.flatMap((result) =>
+    result.file ? [{ url: result.url, file: result.file }] : [],
+  );
+  const transientMisses = results.filter(
+    (result) => result.miss === "transient",
+  ).length;
+  if (fetched.length > 0) return { fetched, transientMisses };
+  if (transientMisses > 0) {
+    throw new TransientError(
+      `fetch-blobs: ${transientMisses}/${requestedCount} media transiently unavailable`,
+    );
+  }
+  throw new TerminalError(
+    `fetch-blobs: ${requestedCount}/${requestedCount} media permanently unavailable`,
+  );
 }
 
 function collectMediaUrls(rawJson: RawJson | null): string[] {

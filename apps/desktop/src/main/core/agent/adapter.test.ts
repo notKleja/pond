@@ -17,6 +17,8 @@ describe("loadModel", () => {
     "xai",
     "mistral",
     "groq",
+    "opencode-go",
+    "openrouter",
   ] as const)(
     "preserves runtime-selected model IDs for %s",
     async (provider) => {
@@ -43,6 +45,26 @@ describe("loadModel", () => {
     expect(model.success && model.data.provider).toContain("lmstudio");
     expect(model.success && model.data.modelId).toBe("local/model:quantized");
   });
+
+  it.each([
+    ["grok-4.7", "opencode-go.responses"],
+    ["claude-haiku-5-5", "opencode-go"],
+    ["gemini-4-argon-contributor", "opencode-go"],
+    ["deepseek-v4.1-flash", "opencode-go.chat"],
+  ] as const)(
+    "routes OpenCode Go model %s through its documented adapter",
+    async (modelId, provider) => {
+      const model = loadedModel.parse(
+        await loadModel({
+          provider: "opencode-go",
+          model: modelId,
+          apiKey: "offline-test-key",
+          threadId: "chat-1",
+        }),
+      );
+      expect(model.provider).toBe(provider);
+    },
+  );
 
   it("does not route Azure without a resource URL", async () => {
     await expect(

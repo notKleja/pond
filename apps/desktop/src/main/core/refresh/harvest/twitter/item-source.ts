@@ -48,6 +48,8 @@ interface TweetPageMeta {
   verified?: boolean;
   publishedAt?: string;
   isReply?: boolean;
+  replyingTo?: string;
+  replyTo?: TweetPageQuoted;
   isQuote?: boolean;
   isThreadRoot?: boolean;
   conversationId?: string;
@@ -170,6 +172,55 @@ export function harvestSource(): string {
     meta.isReply = !!(
       replyingPrefix || article.querySelector('[data-testid="reply-context"]')
     );
+    if (meta.isReply) {
+      const currentPathId =
+        window.location.pathname.match(/\/status\/(\d+)/)?.[1];
+      const articles = Array.from(document.querySelectorAll("article")).filter(
+        (candidate) => !candidate.parentElement?.closest("article"),
+      );
+      const currentIndex = articles.indexOf(article);
+      let parentLink: HTMLAnchorElement | undefined;
+      if (currentPathId === tweetId && currentIndex > 0) {
+        const candidate = articles[currentIndex - 1];
+        if (candidate) {
+          parentLink = Array.from(
+            candidate.querySelectorAll<HTMLAnchorElement>(
+              'a[href*="/status/"]',
+            ),
+          ).find((link) => {
+            if (link.closest("article") !== candidate) return false;
+            const id = link.href.match(/\/status\/(\d+)/)?.[1];
+            return !!id && id !== tweetId;
+          });
+        }
+      }
+      const parentId = parentLink?.href.match(/\/status\/(\d+)/)?.[1];
+      if (parentLink && parentId) {
+        let pathname = `/i/status/${parentId}`;
+        try {
+          pathname = new URL(parentLink.href).pathname;
+        } catch {
+          pathname = `/i/status/${parentId}`;
+        }
+        const replyTo: TweetPageQuoted = {
+          tweetId: parentId,
+          url: `https://x.com${pathname}`,
+        };
+        const handle = pathname.match(/^\/([A-Za-z0-9_]+)\/status\//)?.[1];
+        if (handle) {
+          replyTo.author = `@${handle}`;
+          meta.replyingTo = handle;
+        }
+        meta.replyTo = replyTo;
+      }
+      if (!meta.replyingTo) {
+        const label = Array.from(article.querySelectorAll("a")).find((link) =>
+          /Replying to/i.test(link.textContent ?? ""),
+        );
+        const handle = label?.textContent?.match(/@([A-Za-z0-9_]+)/)?.[1];
+        if (handle) meta.replyingTo = handle;
+      }
+    }
 
     const innerArticle = Array.from(
       article.querySelectorAll<HTMLElement>("article"),

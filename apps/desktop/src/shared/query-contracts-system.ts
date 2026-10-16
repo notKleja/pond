@@ -1,7 +1,6 @@
 import type {
   AgentChat,
   AgentMessage,
-  ConnectedAccount,
   ImageDownloadSettings,
   MediaType,
   Prefs,
@@ -26,6 +25,7 @@ import type {
   ReasonFailure,
   ReasonResult,
 } from "./query-contracts-shared";
+import type { UpdateNotice } from "./update-notice";
 
 export const MediaUnderstandInputSchema = z.strictObject({
   saveId: z.string().min(1),
@@ -164,12 +164,6 @@ type Attachment = AttachmentIdentity &
   );
 
 export interface SystemQueryResults {
-  "accounts.list": {
-    accounts: (ConnectedAccount & { connected: boolean; syncing: boolean })[];
-  };
-  "accounts.setHandle": OkResult<{ account: ConnectedAccount }>;
-  "accounts.setLabel": OkResult<{ account: ConnectedAccount }>;
-  "accounts.disconnect": OkResult;
   "watches.list": { watches: (WatchedAccount & { syncing: boolean })[] };
   "watches.resolve": { ok: false } | { ok: true; target: WatchTarget };
   "watches.add":
@@ -316,10 +310,12 @@ export interface SystemQueryResults {
   };
   "api.restart": OkResult<{ port?: number }>;
   "updates.applyPrefs": OkResult;
+  "updates.currentNotice": UpdateNotice | null;
   "updates.checkNow":
     | OkResult<{ version?: string }>
     | ReasonFailure<"dev_build">;
-  "extension.install": OkResult<{ path: string }>;
+  "updates.download": OkResult | ReasonFailure<"dev_build">;
+  "updates.install": OkResult | ReasonFailure<"dev_build">;
   "quickCapture.applyPrefs": OkResult;
   "window.applyPrefs": OkResult;
   "system.applyPrefs": OkResult<{ restartRequired?: boolean }>;

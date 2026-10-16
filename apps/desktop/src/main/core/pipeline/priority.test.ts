@@ -26,6 +26,7 @@ describe("isInteractiveTrigger", () => {
     expect(isInteractiveTrigger("pipeline:enqueue")).toBe(false);
     expect(isInteractiveTrigger("enqueue:force")).toBe(false);
     expect(isInteractiveTrigger("user:importBookmarks")).toBe(false);
+    expect(isInteractiveTrigger("user:importMymind")).toBe(false);
     expect(isInteractiveTrigger("user:importFiles")).toBe(false);
     expect(isInteractiveTrigger("user:importEagle")).toBe(false);
   });

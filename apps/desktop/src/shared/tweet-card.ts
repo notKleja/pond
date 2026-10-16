@@ -56,6 +56,9 @@ export const TweetCardDataSchema = z.object({
   get quoted() {
     return TweetCardDataSchema.optional();
   },
+  get replyTo() {
+    return TweetCardDataSchema.optional();
+  },
   card: TweetCardLinkSchema.optional(),
 });
 
@@ -207,6 +210,8 @@ export function buildTweetCardData(
 
   const quoted = buildQuoted(capture.quoted);
   if (quoted) data.quoted = quoted;
+  const replyTo = buildQuoted(capture.replyTo);
+  if (replyTo) data.replyTo = replyTo;
 
   const card = buildCard(capture);
   if (card) data.card = card;

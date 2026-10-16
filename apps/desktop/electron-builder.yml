@@ -10,6 +10,9 @@ asarUnpack:
   - "**/node_modules/better-sqlite3/**"
   - "**/node_modules/sqlite-vec/**"
   - "**/node_modules/sqlite-vec-*/**"
+  # sharp loads a sibling dylib. The .node unpack above does not take it along.
+  - "**/node_modules/@img/**"
+  - "**/node_modules/sharp/**"
 
 directories:
   buildResources: build
@@ -36,9 +39,12 @@ files:
 # them from `process.resourcesPath` which lands inside `Contents/Resources`
 # on macOS / `resources/` on Windows+Linux.
 #
-# The platform-specific sections below flatten ffmpeg-static into `bin/` with
-# its native executable name so `binariesAvailable` can spawn it outside the
-# asar. yt-dlp is not bundled: it's fetched at runtime into userData.
+# `node_modules/ffmpeg-static/ffmpeg` is the static ffmpeg yt-dlp uses
+# to mux adaptive streams (most TikTok / IG Reels / YT downloads need
+# it). `extraResources` flattens it into `bin/` so `binariesAvailable`
+# can spawn it as a separate process (asar paths aren't executable). The
+# executable name differs per OS, so it is declared in `mac:` and `win:`.
+# yt-dlp is not bundled: it's fetched at runtime into userData.
 extraResources:
   - from: resources
     to: .
@@ -50,6 +56,8 @@ extraResources:
       - "**/default.png"
   - from: ../extension/.output/chrome-mv3
     to: extension
+  - from: ../extension/.output/firefox-mv3
+    to: extension-firefox
 
 extraMetadata:
   main: ./out/main/index.js
@@ -79,8 +87,14 @@ mac:
   artifactName: ${productName}-${version}-${arch}.${ext}
   target:
     - target: dmg
+      arch:
+        - arm64
+        - x64
     # electron-updater installs macOS updates from the zip, not the DMG.
     - target: zip
+      arch:
+        - arm64
+        - x64
   # Signing reads CSC_LINK and CSC_KEY_PASSWORD; notarization reads APPLE_ID,
   # APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID. Without them it is skipped.
   notarize: true

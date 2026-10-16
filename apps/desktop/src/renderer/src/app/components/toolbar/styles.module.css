@@ -73,8 +73,8 @@
 }
 
 .segment[data-current] {
-  flex: 1 1 0;
-  min-width: 80px;
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 360px;
 }
 

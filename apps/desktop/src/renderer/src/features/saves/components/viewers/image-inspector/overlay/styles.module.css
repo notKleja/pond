@@ -8,6 +8,10 @@
     pointer-events: auto;
     cursor: move;
   }
+
+  &[data-full="true"] {
+    cursor: crosshair;
+  }
 }
 
 .handle {

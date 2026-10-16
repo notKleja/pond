@@ -8,6 +8,27 @@ import {
   StringParam,
 } from "./params";
 
+type MergeGroupOperation = (
+  from: string,
+  to: string,
+) => Promise<QueryResult<"tagGroups.merge">>;
+
+const MergeGroupParams = z.object({
+  from: z.string().trim().min(1),
+  to: z.string().trim().min(1),
+});
+
+export function createMergeGroupQuery(operation: MergeGroupOperation) {
+  return query(MergeGroupParams, async (params) =>
+    operation(params.from, params.to),
+  );
+}
+
+const mergeGroupOperation: MergeGroupOperation = async (from, to) => {
+  const { mergeGroup } = await import("../../core/tag-groups");
+  return mergeGroup(from, to);
+};
+
 export const tagGroupsQueries = {
   async "tagGroups.list"(): Promise<QueryResult<"tagGroups.list">> {
     const { listGroups } = await import("../../core/tag-groups");
@@ -48,6 +69,8 @@ export const tagGroupsQueries = {
       return await updateGroup(params.name, params.patch);
     },
   ),
+
+  "tagGroups.merge": createMergeGroupQuery(mergeGroupOperation),
 
   "tagGroups.delete": query(z.object({ name: StringParam }), async (params) => {
     const { deleteGroup } = await import("../../core/tag-groups");

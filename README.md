@@ -8,13 +8,8 @@ Published fork builds are attached to the
 [`notKleja/pond` releases](https://github.com/notKleja/pond/releases). Windows
 x64 uses `Pond-X.Y.Z-x64.exe`; macOS uses the matching arm64 or x64 `.dmg`.
 
-Before a tagged release exists, the
-[Package desktop workflow](https://github.com/notKleja/pond/actions/workflows/package-desktop.yml)
-can build downloadable `windows-x64` and `macos-unsigned` artifacts after its
-type checks, port tests, architecture check, and packaging jobs succeed. The
-Windows x64 application bundle and native dependencies were exercised during
-this port.
-The macOS artifact is unsigned and was not exercised on a physical Mac, so keep
+The Windows x64 application bundle and native dependencies were exercised during
+this port. The fork's macOS build was not exercised on a physical Mac, so keep
 verified backups while validating the first Mac round trip. Maintainers can
 build the same packages locally with `pnpm dist:win` or `pnpm dist:mac`.
 
@@ -102,6 +97,10 @@ See [`apps/desktop/README.md`](apps/desktop/README.md) for architecture and on-d
 ## Assistant and MCP
 
 Assistant lives in the right column. It searches this library with a key you paste in Settings, or a local host you run such as Ollama or LM Studio. Pond never stores those keys on a Pond server.
+
+You can also use a subscription through a local Codex or Claude Code installation. In Terminal, run `codex login` and sign in with ChatGPT, or run `claude auth login` and sign in with your Claude plan. In Settings → Providers → Subscriptions, add the provider and click Connect. Select its default model in the Assistant composer. No API key is needed. Removing a connection from Pond does not sign you out of the CLI.
+
+These connections run the official CLIs on your Mac; inference still goes to OpenAI or Anthropic and counts against your plan's limits. Pond does not read or copy CLI tokens: Codex receives a narrow link to its existing file-backed ChatGPT sign-in. Keyring-backed Codex sign-ins are rejected with instructions to create the isolated file-backed connection that Pond requires. API-key sign-ins are rejected and inherited provider credentials and routing overrides are removed from these processes. The CLI returns structured requests to Pond's existing tool loop, so Library access, citations, and review before Apply retain the same behavior. CLI tools, MCP, and user or project customizations are disabled. Organization-managed Claude Code policy hooks can still run because Claude Code applies administrator policy in safe mode; its hook-free bare mode also disables the subscription OAuth credentials this connection needs. This integration supports text and Library tools; use a vision provider for image or file attachments. The default model is selected by the CLI; custom model IDs must be available to your plan. Fast and Reasoning controls are not exposed for these connections.
 
 Cursor, Claude, and other MCP hosts can search the same library. Pond speaks MCP over stdio. This block belongs in Cursor `mcp.json`. It launches Pond as a local stdio server (`--mcp`) against the library on this Mac:
 

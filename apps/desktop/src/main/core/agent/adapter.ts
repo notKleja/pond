@@ -1,16 +1,24 @@
 import type { LanguageModel } from "ai";
 import { assistantCatalog } from "../../../shared/assistant";
+import { isCliProvider } from "./cli-runtime";
 import type { AgentProviderId } from "./keys";
 import { createLocalLanguageModel } from "./local-language-model";
+import { createOpenCodeGoModel } from "./opencode-go";
+import { createOpenRouterModel } from "./openrouter";
 
 export async function loadModel(input: {
   provider: AgentProviderId;
   model: string;
   apiKey: string | null;
   baseUrl?: string;
+  threadId?: string;
 }): Promise<LanguageModel | null> {
   const key = input.apiKey ?? "";
   const modelId = input.model || assistantCatalog(input.provider)?.model || "";
+  if (isCliProvider(input.provider)) {
+    const { createCliLanguageModel } = await import("./cli-language-model");
+    return createCliLanguageModel(input.provider, modelId);
+  }
   if (input.provider === "anthropic") {
     const { createAnthropic } = await import("@ai-sdk/anthropic");
     return createAnthropic({ apiKey: key })(modelId);
@@ -72,6 +80,16 @@ export async function loadModel(input: {
   if (input.provider === "deepseek") {
     const { createDeepSeek } = await import("@ai-sdk/deepseek");
     return createDeepSeek({ apiKey: key })(modelId);
+  }
+  if (input.provider === "opencode-go") {
+    return createOpenCodeGoModel(
+      key,
+      modelId,
+      input.threadId ?? crypto.randomUUID(),
+    );
+  }
+  if (input.provider === "openrouter") {
+    return createOpenRouterModel(key, modelId);
   }
   if (input.provider === "ollama" || input.provider === "lmstudio")
     return createLocalLanguageModel({

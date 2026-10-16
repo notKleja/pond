@@ -1,7 +1,41 @@
-import type { Transaction } from "@pond/schema/tx";
-import { describe, expect, it } from "vitest";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { inverse, type Transaction } from "@pond/schema/tx";
+import sharp from "sharp";
+import { afterEach, describe, expect, it } from "vitest";
 import type { LibraryIntegrityRuntime, RepairSave } from "./library-integrity";
 import { createLibraryRepairService } from "./library-repairs";
+
+const roots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
+
+async function applySaveFiles(
+  directory: string,
+  transaction: Transaction,
+): Promise<void> {
+  if (transaction.model !== "save" || transaction.kind !== "update") {
+    throw new Error("Expected a Save update");
+  }
+  for (const file of transaction.fileRenames ?? []) {
+    await rename(join(directory, file.from), join(directory, file.to));
+  }
+  for (const file of transaction.files ?? []) {
+    await writeFile(join(directory, file.filename), file.bytes);
+  }
+}
 
 function createFixture() {
   let now = 1_000;
@@ -143,5 +177,105 @@ describe("Library repair previews", () => {
       skipped: 0,
       undoRecorded: true,
     });
+  });
+
+  it("replaces a damaged PNG thumbnail without orphaning it and restores it on Undo", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pond-thumbnail-repair-"));
+    roots.push(root);
+    const directory = join(root, "items", "save.info");
+    await mkdir(directory, { recursive: true });
+    const source = await sharp({
+      create: {
+        width: 80,
+        height: 60,
+        channels: 3,
+        background: "#336699",
+      },
+    })
+      .png()
+      .toBuffer();
+    const damaged = Buffer.from("damaged thumbnail");
+    await writeFile(join(directory, "image.png"), source);
+    await writeFile(join(directory, "image.png_thumbnail.png"), damaged);
+    const row: RepairSave = {
+      id: "save",
+      title: "Save",
+      source: "local",
+      sourceId: "save",
+      url: "",
+      deletedAt: null,
+      files: [
+        {
+          kind: "image",
+          path: "image.png",
+          size: source.byteLength,
+          sha256: "source",
+        },
+        {
+          kind: "thumbnail",
+          path: "image.png_thumbnail.png",
+          size: damaged.byteLength,
+          sha256: "damaged",
+        },
+      ],
+    };
+    const committed: Transaction[][] = [];
+    const runtime: LibraryIntegrityRuntime = {
+      root: () => root,
+      listSaves: async () => [row],
+      getSave: async () => row,
+      inspectPayload: async () => ({
+        ok: true,
+        size: 1,
+        sha256: "observed",
+        reason: "ok",
+      }),
+      canRenderThumbnail: async (path) => path.endsWith("image.png"),
+      readInfo: async () => ({ status: "missing" }),
+    };
+    const service = createLibraryRepairService({
+      now: () => 1_000,
+      libraryId: () => "pond",
+      root: () => root,
+      integrityRuntime: runtime,
+      commit: async (transactions) => {
+        for (const transaction of transactions) {
+          await applySaveFiles(directory, transaction);
+        }
+        committed.push(transactions);
+      },
+      recordUndo: () => {},
+      repairMetadata: async () => {},
+    });
+
+    const preview = await service.preview({ kind: "thumbnails" });
+    await service.apply({ token: preview.token });
+
+    const transaction = committed[0]?.[0];
+    if (!transaction) throw new Error("Missing repair transaction");
+    expect(transaction).toMatchObject({
+      fileRenames: [
+        {
+          from: "image.png_thumbnail.png",
+          to: "image.png_thumbnail.webp",
+        },
+      ],
+      beforeFiles: [{ filename: "image.png_thumbnail.png", bytes: damaged }],
+    });
+    await expect(
+      readFile(join(directory, "image.png_thumbnail.png")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(
+      (await sharp(join(directory, "image.png_thumbnail.webp")).metadata())
+        .format,
+    ).toBe("webp");
+
+    await applySaveFiles(directory, inverse(transaction));
+    expect(await readFile(join(directory, "image.png_thumbnail.png"))).toEqual(
+      damaged,
+    );
+    await expect(
+      readFile(join(directory, "image.png_thumbnail.webp")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

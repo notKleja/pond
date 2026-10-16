@@ -101,6 +101,8 @@ const TweetNodeSchema = z
         reply_count: scrapedNumber,
         quote_count: scrapedNumber,
         bookmark_count: scrapedNumber,
+        in_reply_to_status_id_str: scrapedText,
+        in_reply_to_screen_name: scrapedText,
         extended_entities: z
           .object({
             media: z.array(MediaEntrySchema).optional().catch(undefined),
@@ -265,6 +267,7 @@ export interface RichTweet {
   media: RichTweetMedia[];
   metrics: RichTweetMetrics;
   quoted?: RichTweet;
+  replyTo?: { tweetId: string; url: string; handle: string };
   card?: RichTweetCard;
   raw: TweetNode;
 }
@@ -363,6 +366,17 @@ function richTweetFromNode(tweet: TweetNode): RichTweet | null {
     raw: tweet,
   };
   if (card) rich.card = card;
+  const replyId = tweet.legacy.in_reply_to_status_id_str;
+  const replyHandle = tweet.legacy.in_reply_to_screen_name ?? "";
+  if (replyId) {
+    rich.replyTo = {
+      tweetId: replyId,
+      url: replyHandle
+        ? `https://x.com/${replyHandle}/status/${replyId}`
+        : `https://x.com/i/status/${replyId}`,
+      handle: replyHandle,
+    };
+  }
   return rich;
 }
 

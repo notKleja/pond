@@ -6,6 +6,7 @@ export type { Capture, RawJson } from "@pond/schema/raw";
 export interface ExtractInput {
   url: URL;
   fetch?: typeof fetch;
+  signal?: AbortSignal;
 }
 
 interface ExtractorTest {

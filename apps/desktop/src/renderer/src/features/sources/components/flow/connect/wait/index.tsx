@@ -230,6 +230,10 @@ function useConnectArrival(): void {
       importedAccountId = payload.accountId;
       tick();
     });
+    const stopFailureListen = window.pond.onSessionImportFailed((payload) => {
+      if (payload.source !== source) return;
+      connectFlow.fail(source);
+    });
 
     tick();
     const timer = setInterval(tick, 1500);
@@ -237,6 +241,7 @@ function useConnectArrival(): void {
       cancelled = true;
       clearInterval(timer);
       stopListen();
+      stopFailureListen();
     };
   }, [waiting, connectedBefore, refetch]);
 }

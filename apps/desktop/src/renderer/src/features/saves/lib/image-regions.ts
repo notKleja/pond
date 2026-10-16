@@ -62,6 +62,14 @@ export function viewToImagePoint(
 }
 const MIN_CROP = 0.001;
 
+export function fullImageCrop(): ImageCrop {
+  return { x: 0, y: 0, w: 1, h: 1 };
+}
+
+export function isFullImageCrop(crop: ImageCrop): boolean {
+  return crop.x === 0 && crop.y === 0 && crop.w === 1 && crop.h === 1;
+}
+
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }

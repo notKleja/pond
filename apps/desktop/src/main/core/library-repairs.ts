@@ -24,7 +24,7 @@ import {
   scanLibraryIntegrity,
 } from "./library-integrity";
 import { currentLibraryId } from "./prefs-scope";
-import { renderThumbnailPng } from "./save-thumbnail-file";
+import { renderThumbnail } from "./save-thumbnail-file";
 import { readLibraryMedia } from "./storage/library-media-storage";
 import { recordBatchForUndo } from "./undo";
 
@@ -201,7 +201,7 @@ async function applyIssue(
         `${row.id}.info`,
         action.source,
       );
-      const bytes = await renderThumbnailPng(source);
+      const bytes = await renderThumbnail(source);
       if (!bytes)
         throw new Error(`Could not generate a thumbnail for Save ${row.id}.`);
       const nextFile = {
@@ -209,7 +209,7 @@ async function applyIssue(
         path: action.destination,
         sha256: createHash("sha256").update(bytes).digest("hex"),
         size: bytes.byteLength,
-        mimeType: "image/png",
+        mimeType: "image/webp",
       };
       const nextFiles = [
         ...row.files.filter((file) => !isRepairThumbnail(file.kind)),
@@ -224,17 +224,21 @@ async function applyIssue(
         files: [{ filename: action.destination, bytes }],
         meta: { actor: "user", actorReason: "library-repair:thumbnail" },
       };
-      const previous = row.files.find(
-        (file) => file.path === action.destination,
-      );
+      const previous = row.files.find((file) => isRepairThumbnail(file.kind));
       if (previous) {
         const oldBytes = await readLibraryMedia(
           join(dependencies.root(), "items", `${row.id}.info`, previous.path),
         ).catch(() => null);
-        if (oldBytes)
+        if (oldBytes) {
           transaction.beforeFiles = [
             { filename: previous.path, bytes: oldBytes },
           ];
+          if (previous.path !== action.destination) {
+            transaction.fileRenames = [
+              { from: previous.path, to: action.destination },
+            ];
+          }
+        }
       }
       await dependencies.commit([transaction]);
       return [transaction];

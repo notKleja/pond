@@ -6,8 +6,10 @@ export const POSTER_KIND = "poster";
 const AVATAR_KIND = "avatar";
 const SOURCE_ICON_KIND = "source_icon";
 
-const THUMBNAIL_SUFFIX = "_thumbnail.png";
+const THUMBNAIL_WEBP_SUFFIX = "_thumbnail.webp";
+const THUMBNAIL_PNG_SUFFIX = "_thumbnail.png";
 export const TEXT_THUMBNAIL_FILE = "thumbnail.png";
+export const TEXT_THUMBNAIL_WEBP_FILE = "thumbnail.webp";
 export const THUMBNAIL_DARK_FILE = "thumbnail-dark.png";
 
 const THUMBNAIL_KINDS: ReadonlySet<string> = new Set([
@@ -47,15 +49,21 @@ export function isThumbnailFilename(filename: string): boolean {
   const name = basenameOf(filename);
   const lower = name.toLowerCase();
   return (
-    lower.endsWith(THUMBNAIL_SUFFIX) ||
+    lower.endsWith(THUMBNAIL_WEBP_SUFFIX) ||
+    lower.endsWith(THUMBNAIL_PNG_SUFFIX) ||
     name === TEXT_THUMBNAIL_FILE ||
+    name === TEXT_THUMBNAIL_WEBP_FILE ||
     name === THUMBNAIL_DARK_FILE
   );
 }
 
 export function isTextCardThumbnailPath(path: string): boolean {
   const name = basenameOf(path);
-  return name === TEXT_THUMBNAIL_FILE || name === THUMBNAIL_DARK_FILE;
+  return (
+    name === TEXT_THUMBNAIL_FILE ||
+    name === TEXT_THUMBNAIL_WEBP_FILE ||
+    name === THUMBNAIL_DARK_FILE
+  );
 }
 
 export function hasMediaThumbnail(
@@ -70,7 +78,19 @@ export function hasMediaThumbnail(
 }
 
 export function thumbnailFilename(originalFilename: string): string {
-  return `${basenameOf(originalFilename)}${THUMBNAIL_SUFFIX}`;
+  return `${basenameOf(originalFilename)}${THUMBNAIL_WEBP_SUFFIX}`;
+}
+
+export function webpThumbnailFilename(existingFilename: string): string {
+  const name = basenameOf(existingFilename);
+  const extensionIndex = name.lastIndexOf(".");
+  return `${extensionIndex > 0 ? name.slice(0, extensionIndex) : name}.webp`;
+}
+
+/** Existing Pond and Eagle sidecars still use the PNG suffix. */
+export function thumbnailSidecarCandidates(originalFilename: string): string[] {
+  const base = basenameOf(originalFilename);
+  return [`${base}${THUMBNAIL_WEBP_SUFFIX}`, `${base}${THUMBNAIL_PNG_SUFFIX}`];
 }
 
 export function mediaFilename(index: number, ext: string): string {

@@ -226,12 +226,12 @@ export async function captureFullPage(
   let canvas: OffscreenCanvas | undefined;
   let started = false;
   const requireActiveTab = async () => {
-    const [current] = await chrome.tabs.query({ active: true, windowId });
+    const [current] = await browser.tabs.query({ active: true, windowId });
     if (current?.id !== tabId)
       throw new Error("Page capture stopped because the active tab changed.");
   };
   try {
-    const [initial] = await chrome.scripting.executeScript({
+    const [initial] = await browser.scripting.executeScript({
       target: { tabId },
       func: pageCaptureState,
       args: ["start"],
@@ -244,7 +244,7 @@ export async function captureFullPage(
     for (let y = 0; y < page.height; y += page.viewportHeight) {
       for (let x = 0; x < page.width; x += page.viewportWidth) {
         await requireActiveTab();
-        const [moved] = await chrome.scripting.executeScript({
+        const [moved] = await browser.scripting.executeScript({
           target: { tabId },
           func: pageCaptureState,
           args: ["scroll", x, y],
@@ -260,7 +260,7 @@ export async function captureFullPage(
           );
         await new Promise((resolve) => setTimeout(resolve, 550));
         await requireActiveTab();
-        const data = await chrome.tabs.captureVisibleTab(windowId, {
+        const data = await browser.tabs.captureVisibleTab(windowId, {
           format: "png",
         });
         await requireActiveTab();
@@ -300,7 +300,7 @@ export async function captureFullPage(
     return `data:image/png;base64,${btoa(binary)}`;
   } finally {
     if (started)
-      await chrome.scripting
+      await browser.scripting
         .executeScript({
           target: { tabId },
           func: pageCaptureState,

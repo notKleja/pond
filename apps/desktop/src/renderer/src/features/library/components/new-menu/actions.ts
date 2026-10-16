@@ -172,6 +172,22 @@ export function createNewActions({
     });
   }
 
+  async function importMymind(): Promise<void> {
+    const result = await window.pond.query("saves.importMymind", {});
+    if (!result.ok) {
+      if (result.reason === "cancelled") return;
+      throw new Error(result.error);
+    }
+    notify({
+      id: "new-import",
+      title: result.imported
+        ? `Imported ${result.imported} ${result.imported === 1 ? "Save" : "Saves"} from mymind`
+        : "Nothing new to import",
+      description: result.skipped > 0 ? `${result.skipped} skipped` : undefined,
+      timeout: 5000,
+    });
+  }
+
   async function importPageAssets(url: string): Promise<void> {
     const href = url.trim();
     if (!href) throw new Error("Enter a website link.");
@@ -499,6 +515,7 @@ export function createNewActions({
     importLegacyLibrary,
     importClipboard,
     importBookmarks,
+    importMymind,
     importPageAssets,
     importEagle,
     importEaglePackage,
@@ -525,6 +542,7 @@ export const {
   importLegacyLibrary,
   importClipboard,
   importBookmarks,
+  importMymind,
   importPageAssets,
   importEagle,
   importEaglePackage,

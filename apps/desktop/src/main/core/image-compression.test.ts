@@ -203,7 +203,16 @@ it("commits replacement bytes, metadata, derived images, and Undo as one batch",
       width: 100,
       height: 50,
     },
-    files: [{ filename: "image.png" }, { filename: "image.png_thumbnail.png" }],
+    files: [
+      { filename: "image.png" },
+      { filename: "image.png_thumbnail.webp" },
+    ],
+    fileRenames: [
+      {
+        from: "image.png_thumbnail.png",
+        to: "image.png_thumbnail.webp",
+      },
+    ],
     beforeFiles: [
       { filename: "image.png", bytes: source },
       { filename: "image.png_thumbnail.png", bytes: thumbnail },

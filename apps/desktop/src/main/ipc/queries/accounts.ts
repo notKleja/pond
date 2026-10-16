@@ -6,6 +6,7 @@ import {
   getAccount,
   listAccounts,
   patchAccount,
+  patchAccountSync,
   removeAccount,
 } from "../../core/sync/accounts";
 import { fillMissingAvatars } from "../../core/sync/avatars";
@@ -18,6 +19,35 @@ import {
 } from "./params";
 
 const ACCOUNT_NOT_FOUND: OkFailure = { ok: false, error: "Account not found." };
+const SYNC_LIKES_UNSUPPORTED: OkFailure = {
+  ok: false,
+  error: "Syncing Likes is only available for X accounts.",
+};
+
+interface SetSyncLikesDependencies {
+  getAccount: typeof getAccount;
+  patchAccountSync: typeof patchAccountSync;
+}
+
+export function createSetSyncLikesQuery(
+  dependencies: SetSyncLikesDependencies = { getAccount, patchAccountSync },
+) {
+  return query(
+    z.strictObject({
+      accountId: z.string().trim().min(1),
+      syncLikes: z.boolean(),
+    }),
+    async (params) => {
+      const account = await dependencies.getAccount(params.accountId);
+      if (!account) return ACCOUNT_NOT_FOUND;
+      if (account.source !== "twitter") return SYNC_LIKES_UNSUPPORTED;
+      await dependencies.patchAccountSync(params.accountId, {
+        syncLikes: params.syncLikes,
+      });
+      return { ok: true as const };
+    },
+  );
+}
 
 export const accountsQueries = {
   async "accounts.list"() {
@@ -62,6 +92,8 @@ export const accountsQueries = {
       return account ? { ok: true as const, account } : ACCOUNT_NOT_FOUND;
     },
   ),
+
+  "accounts.setSyncLikes": createSetSyncLikesQuery(),
 
   "accounts.disconnect": query(
     z.object({ accountId: StringParam }),

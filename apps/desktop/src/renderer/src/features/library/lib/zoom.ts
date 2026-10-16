@@ -1,7 +1,7 @@
 import { clamp } from "@/shared/lib/math";
 
 const ZOOM_MIN = 80;
-const ZOOM_MAX = 240;
+const ZOOM_MAX = 360;
 export const ZOOM_DEFAULT = 130;
 export const ZOOM_STORAGE_KEY = "pond.gridZoom";
 
@@ -11,7 +11,11 @@ export const ZOOM_STEPS: ReadonlyArray<{ value: number; label: string }> = [
   { value: ZOOM_DEFAULT, label: "Medium" },
   { value: 155, label: "Large" },
   { value: 185, label: "Huge" },
-  { value: ZOOM_MAX, label: "Giant" },
+  { value: 215, label: "Extra Large" },
+  { value: 240, label: "Giant" },
+  { value: 280, label: "280 px" },
+  { value: 320, label: "320 px" },
+  { value: ZOOM_MAX, label: "360 px" },
 ];
 
 export function clampZoom(n: number): number {

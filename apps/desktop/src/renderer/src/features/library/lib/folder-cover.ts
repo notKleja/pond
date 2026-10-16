@@ -20,10 +20,15 @@ function textCoverFile(save: Save, theme: ResolvedTheme): SaveFile | null {
     (file) => isThumbnailKind(file.kind) && isTextCardThumbnailPath(file.path),
   );
   if (files.length === 0) return null;
-  const preferred = theme === "dark" ? "thumbnail-dark.png" : "thumbnail.png";
-  return (
-    files.find((file) => file.path.endsWith(preferred)) ?? files[0] ?? null
-  );
+  const preferred =
+    theme === "dark"
+      ? ["thumbnail-dark.png", "thumbnail.webp", "thumbnail.png"]
+      : ["thumbnail.webp", "thumbnail.png", "thumbnail-dark.png"];
+  for (const filename of preferred) {
+    const match = files.find((file) => file.path.endsWith(filename));
+    if (match) return match;
+  }
+  return files[0] ?? null;
 }
 
 export function folderCoverUrl(
@@ -31,7 +36,7 @@ export function folderCoverUrl(
   width = 36,
   theme = resolveCurrentTheme(),
 ): string | null {
-  const unit = pickCardUnit(save);
+  const unit = pickCardUnit(save, { theme });
   if (unit) {
     return unit.requiresGeneratedPreview
       ? previewThumbUrlFor(unit.url, width)

@@ -33,7 +33,7 @@ export function Section({
 
   if (empty && !action) return null;
 
-  if (empty || !collapsible) {
+  if (!collapsible) {
     return (
       <section
         className={cn(styles.section, className)}
@@ -55,30 +55,40 @@ export function Section({
     );
   }
 
+  const expanded = !empty && open;
+  /** One header tree, so an open picker stays anchored when the first item appears. */
   return (
     <Accordion.Root
       className={cn(styles.section, className)}
       data-divider={divider ? undefined : "none"}
       multiple
-      value={open ? [title] : []}
-      onValueChange={(next) => setOpen(next.includes(title))}
+      value={expanded ? [title] : []}
+      onValueChange={(next) => {
+        if (!empty) setOpen(next.includes(title));
+      }}
     >
       <Accordion.Item value={title} className={styles.item}>
         <Accordion.Header className={styles.header}>
-          <Accordion.Trigger
-            className={styles.trigger}
-            id={`${id}-trigger`}
-            aria-controls={open ? `${id}-panel` : undefined}
-          >
-            <span className={styles.title}>{title}</span>
-            <span className={styles.chevron} aria-hidden>
-              <IconChevronDown size={12} />
+          {empty ? (
+            <span className={styles.title} id={`${id}-title`}>
+              {title}
             </span>
-          </Accordion.Trigger>
+          ) : (
+            <Accordion.Trigger
+              className={styles.trigger}
+              id={`${id}-trigger`}
+              aria-controls={expanded ? `${id}-panel` : undefined}
+            >
+              <span className={styles.title}>{title}</span>
+              <span className={styles.chevron} aria-hidden>
+                <IconChevronDown size={12} />
+              </span>
+            </Accordion.Trigger>
+          )}
           {action ? <span className={styles.action}>{action}</span> : null}
         </Accordion.Header>
         <AnimatePresence mode="wait" initial={false}>
-          {open ? (
+          {expanded ? (
             <motion.div
               id={`${id}-panel`}
               role="region"

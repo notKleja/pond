@@ -15,7 +15,7 @@ import type {
 } from "../../shared/library-repair-contracts";
 import { getDb } from "../db";
 import { libraryRoot, saveDirIn } from "../paths";
-import { renderThumbnailPng, thumbnailSource } from "./save-thumbnail-file";
+import { renderThumbnail, thumbnailSource } from "./save-thumbnail-file";
 import {
   libraryMediaMetadata,
   readLibraryMediaRange,
@@ -93,7 +93,7 @@ const defaultRuntime: LibraryIntegrityRuntime = {
   },
   inspectPayload,
   async canRenderThumbnail(path) {
-    return (await renderThumbnailPng(path).catch(() => null)) !== null;
+    return (await renderThumbnail(path).catch(() => null)) !== null;
   },
   async readInfo(path) {
     let decoded: Buffer;

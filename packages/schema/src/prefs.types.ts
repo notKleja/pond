@@ -70,6 +70,8 @@ export interface SourceSyncPrefs {
    * @see recoverInterruptedSyncs
    */
   runningSince: string | null;
+  /** X only. Omitted means likes still sync. */
+  syncLikes?: boolean;
 }
 
 export const DEFAULT_SOURCE_SYNC_PREFS: SourceSyncPrefs = {

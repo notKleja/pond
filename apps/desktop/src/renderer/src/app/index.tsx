@@ -23,6 +23,7 @@ import { syncPrimaryFromPath } from "../features/saves/lib/save-nav";
 import { InterfaceZoom } from "../features/settings/effects/interface-zoom";
 import { ThemeApplier } from "../features/settings/effects/theme-applier";
 import { UiSounds } from "../features/settings/effects/ui-sounds";
+import { UpdateNoticeBridge } from "../features/settings/effects/update-notice";
 import { SyncStatusBridge } from "../features/sources/effects/sync-status-bridge";
 import { routeTree } from "../routeTree.gen";
 import { ToastHost } from "../shared/components/toast-host";
@@ -180,6 +181,7 @@ function LibraryApp() {
               <MenuRecentsBridge />
               <AgentLibraryBridge />
               <SyncStatusBridge />
+              <UpdateNoticeBridge />
               <ExtensionCaptureToast />
               <EnrichmentSweep />
               <BootScreen />

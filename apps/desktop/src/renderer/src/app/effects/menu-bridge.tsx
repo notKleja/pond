@@ -9,6 +9,7 @@ import {
   importBookmarks,
   importClipboard,
   importEagle,
+  importMymind,
   importPageAssets,
   importPaths,
   importPondPackage,
@@ -309,6 +310,10 @@ export function MenuBridge() {
 
         case "library.import-bookmarks":
           void runNewAction(importBookmarks);
+          return;
+
+        case "library.import-mymind":
+          void runNewAction(importMymind);
           return;
 
         case "library.import-page-assets":

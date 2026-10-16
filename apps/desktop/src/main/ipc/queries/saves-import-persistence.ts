@@ -23,7 +23,7 @@ import { persistSave } from "../../core/persist-save";
 import {
   ensureSaveThumbnail,
   persistSaveThumbnail,
-  renderThumbnailPng,
+  renderThumbnail,
   THUMBNAIL_REPLACE_KINDS,
 } from "../../core/save-thumbnail";
 import { readLibraryMedia } from "../../core/storage/library-media-storage";
@@ -165,7 +165,7 @@ export const savesImportPersistenceQueries = {
       if (!fileInfo?.isFile() || fileInfo.size === 0) {
         return { ok: false, error: "empty_file" };
       }
-      const bytes = await renderThumbnailPng(await readFile(path));
+      const bytes = await renderThumbnail(await readFile(path));
       if (!bytes) return { ok: false, error: "not_an_image" };
       const updated = await persistSaveThumbnail(
         params.id,
@@ -181,7 +181,7 @@ export const savesImportPersistenceQueries = {
     async ({ id }): Promise<QueryResult<"saves.setThumbnailFromClipboard">> => {
       const image = await readClipboardImage();
       if (image.isEmpty()) return { ok: false, error: "clipboard_empty" };
-      const bytes = await renderThumbnailPng(image.toPNG());
+      const bytes = await renderThumbnail(image.toPNG());
       if (!bytes) return { ok: false, error: "not_an_image" };
       const updated = await persistSaveThumbnail(
         id,

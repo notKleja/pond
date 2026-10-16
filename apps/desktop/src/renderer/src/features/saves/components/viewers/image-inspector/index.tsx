@@ -10,6 +10,10 @@ import {
 import type { ViewerNavigation } from "@/features/saves/components/viewers/viewer-toolbar-groups";
 import { useGifPlayer } from "@/features/saves/hooks/use-gif-player";
 import {
+  fullImageCrop,
+  isFullImageCrop,
+} from "@/features/saves/lib/image-regions";
+import {
   applyInspect,
   cropPatch,
   flipPatch,
@@ -133,8 +137,9 @@ export function ImageInspector({
     }
   };
   const toggleCrop = () => {
-    setMode((previous) => (previous === "crop" ? "view" : "crop"));
-    setDraft(null);
+    const nextMode = mode === "crop" ? "view" : "crop";
+    setMode(nextMode);
+    setDraft(nextMode === "crop" ? fullImageCrop() : null);
     viewport.setPosition(() => FIT_POSE);
   };
   const actualSize = () => {
@@ -177,8 +182,10 @@ export function ImageInspector({
       });
   };
 
+  const canApplyCrop =
+    !!draft && draft.w > 0 && draft.h > 0 && !isFullImageCrop(draft);
   const applyCrop = () => {
-    if (!draft) return;
+    if (!draft || !canApplyCrop) return;
     void run(async () => {
       await applyInspect(save.id, cropPatch(draft), "inspect:crop");
       setDraft(null);
@@ -284,6 +291,7 @@ export function ImageInspector({
           }
         }}
         data-background={prefs.transparentBackground ?? "none"}
+        data-mode={mode}
         {...gestures}
       >
         <div
@@ -371,7 +379,7 @@ export function ImageInspector({
         actual={viewport.actual}
         active={active}
         busy={busy}
-        canCrop={!!draft && draft.w > 0 && draft.h > 0}
+        canCrop={canApplyCrop}
         mode={mode}
         edits={edits}
         endActions={endActions}

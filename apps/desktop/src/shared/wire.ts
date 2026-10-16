@@ -89,6 +89,11 @@ export interface WireSessionImported {
   accountId: string;
 }
 
+export interface WireSessionImportFailed {
+  source: Source;
+  reason: string;
+}
+
 export interface WireSyncStatusUpdate {
   accountId: string;
   source: Source;

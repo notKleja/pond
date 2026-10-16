@@ -93,4 +93,33 @@ describe("folder cover url", () => {
     );
     delete document.documentElement.dataset.theme;
   });
+
+  it("prefers a new light WebP thumbnail over a retained dark thumbnail", () => {
+    const save = coverSave();
+    save.id = "custom-cover";
+    save.mediaType = "text";
+    save.files = [
+      {
+        kind: "thumbnail_dark",
+        path: "thumbnail-dark.png",
+        mimeType: "image/png",
+        sha256: "dark",
+        size: 1,
+      },
+      {
+        kind: "thumbnail",
+        path: "thumbnail.webp",
+        mimeType: "image/webp",
+        sha256: "light",
+        size: 1,
+      },
+    ];
+
+    expect(folderCoverUrl(save, 360, "light")).toMatch(
+      /^pond:\/\/custom-cover\/thumbnail\.webp/,
+    );
+    expect(folderCoverUrl(save, 360, "dark")).toMatch(
+      /^pond:\/\/custom-cover\/thumbnail-dark\.png/,
+    );
+  });
 });

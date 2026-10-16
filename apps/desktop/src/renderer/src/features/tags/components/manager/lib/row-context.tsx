@@ -111,6 +111,11 @@ export function TagRowProvider({
             name,
             patch: { color },
           }),
+        mergeTargets: groups.filter(
+          (group) => group.toLowerCase() !== name.toLowerCase(),
+        ),
+        onMerge: (target) =>
+          void window.pond.query("tagGroups.merge", { from: name, to: target }),
         onRequestDelete: confirmDelete,
       };
       return buildTagGroupMenuItems(actions);

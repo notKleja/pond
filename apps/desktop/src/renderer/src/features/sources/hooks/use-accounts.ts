@@ -19,6 +19,7 @@ export interface AccountRow {
     lastSyncedAt: string | null;
     lastError: string | null;
     knownCount: number;
+    syncLikes?: boolean;
   };
   connected: boolean;
   syncing: boolean;
@@ -40,6 +41,7 @@ const AccountsReplySchema = z
               lastSyncedAt: z.string().nullable().catch(null),
               lastError: z.string().nullable().catch(null),
               knownCount: z.number().catch(0),
+              syncLikes: z.boolean().optional().catch(undefined),
             })
             .catch({ lastSyncedAt: null, lastError: null, knownCount: 0 }),
           connected: z.boolean().catch(false),

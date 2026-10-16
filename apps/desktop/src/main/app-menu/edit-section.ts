@@ -38,6 +38,7 @@ export function buildEditSection(
       {
         label: "Select All",
         accelerator: "CmdOrCtrl+A",
+        registerAccelerator: false,
         click: context.edit.selectAll,
       },
       { type: "separator" },

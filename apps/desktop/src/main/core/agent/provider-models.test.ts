@@ -61,6 +61,32 @@ describe("modelsFromProviderResponse", () => {
     expect(models).toEqual([{ id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" }]);
   });
 
+  it("keeps OpenRouter text models and excludes other output modalities", () => {
+    const models = modelsFromProviderResponse("openrouter", {
+      data: [
+        {
+          id: "anthropic/claude-sonnet-4.5",
+          name: "Claude Sonnet 4.5",
+          architecture: { output_modalities: ["text"] },
+        },
+        {
+          id: "google/gemini-image-model",
+          name: "Gemini Image Model",
+          architecture: { output_modalities: ["text", "image"] },
+        },
+        {
+          id: "openai/audio-model",
+          name: "Audio Model",
+          architecture: { output_modalities: ["text", "audio"] },
+        },
+      ],
+    });
+
+    expect(models).toEqual([
+      { id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5" },
+    ]);
+  });
+
   it("keeps every Ollama id the host reports", () => {
     const models = modelsFromProviderResponse("ollama", {
       data: [{ id: "llama3.2:latest" }, { id: "qwen2.5vl" }],

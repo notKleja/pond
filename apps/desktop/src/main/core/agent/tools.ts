@@ -121,17 +121,23 @@ export const findDuplicatesInput = z.object({});
 
 export type LibraryScope = LibraryRetrievalScope;
 
+const emptySnippet = z
+  .string()
+  .nullable()
+  .transform((value) => value ?? "");
+
 const GrepRowsSchema = z.array(
   z.object({
     id: z.string(),
-    title: z.string(),
-    description: z.string(),
-    caption: z.string(),
-    ocr: z.string(),
-    transcript: z.string(),
-    notes: z.string(),
+    title: emptySnippet,
+    description: emptySnippet,
+    caption: emptySnippet,
+    ocr: emptySnippet,
+    transcript: emptySnippet,
+    notes: emptySnippet,
   }),
 );
+
 export const toolDependencies = {
   retrieveLibrary,
   async readRows(condition: SQL | undefined) {
@@ -162,10 +168,9 @@ export const toolDependencies = {
     const db = await getDb();
     const idClause = id ? "AND f.id = ?" : "";
     const params = id ? [match, id, limit] : [match, limit];
-    return GrepRowsSchema.parse(
-      db.$raw
-        .prepare(
-          `SELECT f.id AS id,
+    return db.$raw
+      .prepare(
+        `SELECT f.id AS id,
               snippet(saves_fts, 1, '', '', '…', 16) AS title,
               snippet(saves_fts, 2, '', '', '…', 24) AS description,
               snippet(saves_fts, 5, '', '', '…', 24) AS caption,
@@ -176,9 +181,8 @@ export const toolDependencies = {
        JOIN saves s ON s.id = f.id
        WHERE saves_fts MATCH ? AND s.deleted_at IS NULL ${idClause}
        LIMIT ?`,
-        )
-        .all(...params),
-    );
+      )
+      .all(...params);
   },
   async admittedIds(condition: SQL | undefined) {
     const db = await getDb();
@@ -287,7 +291,10 @@ export async function grepLibrary(
 ) {
   const match = toFtsMatchQuery(input.query);
   if (!match) return { hits: [] };
-  const rows = await deps.grepRows(match, input.id, input.limit ?? 20);
+  /** SQLite snippet() returns null for columns that did not match. */
+  const rows = GrepRowsSchema.parse(
+    await deps.grepRows(match, input.id, input.limit ?? 20),
+  );
   const admitted = rows.length
     ? new Set(
         (

@@ -19,12 +19,15 @@
     "directory": "apps/extension"
   },
   "scripts": {
-    "build": "wxt build",
+    "build": "wxt build && wxt build -b firefox --mv3",
+    "build:firefox": "wxt build -b firefox --mv3",
     "dev": "wxt",
     "icons": "node scripts/generate-icons.mjs",
     "postinstall": "wxt prepare",
+    "test": "vitest run",
     "typecheck": "wxt prepare && tsc --noEmit",
-    "zip": "wxt zip"
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox --mv3"
   },
   "dependencies": {
     "@pond/schema": "workspace:*",
@@ -43,6 +46,7 @@
     "@wxt-dev/module-react": "^1.2.2",
     "sharp": "catalog:",
     "typescript": "catalog:",
+    "vitest": "catalog:",
     "wxt": "^0.21.4"
   }
 }

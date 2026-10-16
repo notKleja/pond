@@ -53,6 +53,9 @@ export const connectFlow = {
     );
     if (!already) playUiSuccess();
   },
+  fail(source: Source): void {
+    markFailed(source);
+  },
   clear(): void {
     const waiting = store.state.waiting;
     store.setState((s) => (s.waiting === null ? s : { ...s, waiting: null }));

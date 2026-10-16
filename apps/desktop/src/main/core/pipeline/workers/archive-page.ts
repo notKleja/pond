@@ -35,6 +35,7 @@ const SETTLE_MS = 2_000;
 const NETWORK_QUIET_MS = 1_500;
 const NETWORK_IDLE_BUDGET_MS = 10_000;
 const MAX_PRELOAD_IMAGES = 400;
+const MAX_MEDIA_PER_PAGE = 60;
 const IMAGE_PRELOAD_BUDGET_MS = 45_000;
 const PAGE_GAP_MS = 750;
 const NAV_TIMEOUT_MS = 25_000;
@@ -47,7 +48,7 @@ const ARCHIVE_KIND = "archive";
 const ARCHIVE_MANIFEST_KIND = "archive_manifest";
 const ARCHIVE_MANIFEST_FILENAME = "archive-manifest.json";
 const ARCHIVE_WARC_FILENAME = "archive.warc.gz";
-export const ARCHIVE_VERSION = 8;
+export const ARCHIVE_VERSION = 9;
 
 export type ArchiveScope = "page" | "site";
 
@@ -294,6 +295,9 @@ async function crawlSite(
         NETWORK_QUIET_MS,
         NETWORK_IDLE_BUDGET_MS,
       );
+      await recorder.captureFullBodies(
+        await collectMediaUrls(lease.win.webContents),
+      );
       await recorder.flush();
 
       const wc = lease.win.webContents;
@@ -371,6 +375,9 @@ async function preloadImages(wc: WebContents): Promise<void> {
       addSrcset(el.getAttribute("srcset"));
       addSrcset(el.getAttribute("data-srcset"));
     }
+    for (const el of document.querySelectorAll("video[poster]")) {
+      urls.add(el.getAttribute("poster"));
+    }
     for (const sheet of document.styleSheets) {
       let rules;
       try {
@@ -410,6 +417,31 @@ async function preloadImages(wc: WebContents): Promise<void> {
       IMAGE_PRELOAD_BUDGET_MS,
     );
   } catch {}
+}
+
+const MediaUrlsSchema = z
+  .array(z.unknown())
+  .transform((items) =>
+    items.flatMap((item) => z.string().safeParse(item).data ?? []),
+  )
+  .catch([]);
+
+async function collectMediaUrls(wc: WebContents): Promise<string[]> {
+  const expr = `(() => {
+    const urls = new Set();
+    for (const el of document.querySelectorAll("video, audio, video source, audio source")) {
+      const src = el.currentSrc || el.src;
+      if (src) urls.add(src);
+    }
+    return [...urls].slice(0, ${MAX_MEDIA_PER_PAGE});
+  })()`;
+  try {
+    return MediaUrlsSchema.parse(
+      await withTimeout(wc.executeJavaScript(expr, true), HARVEST_TIMEOUT_MS),
+    );
+  } catch {
+    return [];
+  }
 }
 
 async function autoScroll(wc: WebContents): Promise<void> {

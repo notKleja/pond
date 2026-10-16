@@ -50,9 +50,6 @@ export function inPagePinterestNormalize() {
       return undefined;
     };
 
-    const upgradeImage = (src: string): string =>
-      src.replace(/\/\d+x(?:\d+)?\//, "/originals/");
-
     const titleEl = document.querySelector<HTMLElement>(
       '[data-test-id="pin-title"], [data-test-id="pinTitle"], h1',
     );
@@ -134,9 +131,8 @@ export function inPagePinterestNormalize() {
     ]);
     const imgSrc = domImgSrc || ogImage;
     if (imgSrc) {
-      const upgraded = upgradeImage(imgSrc);
-      out.mediaUrl = upgraded;
-      out.mediaUrls = [{ url: upgraded, type: "image" }];
+      out.mediaUrl = imgSrc;
+      out.mediaUrls = [{ url: imgSrc, type: "image" }];
       out.mediaType = "image";
     }
 

@@ -14,7 +14,7 @@ export interface DuplicateImportCandidate {
   existingTitle: string | null;
 }
 
-async function fileHash(path: string): Promise<string> {
+export async function hashImportFile(path: string): Promise<string> {
   const hash = createHash("sha256");
   await new Promise<void>((resolveHash, reject) => {
     const stream = createReadStream(path);
@@ -65,7 +65,7 @@ export async function reviewImportDuplicates(
         });
   const candidates: DuplicateImportCandidate[] = [];
   for (const path of await importableFiles(paths)) {
-    const existing = byHash.get((await fileHash(path)).toLowerCase());
+    const existing = byHash.get((await hashImportFile(path)).toLowerCase());
     if (existing)
       candidates.push({
         path,

@@ -1,6 +1,6 @@
 import { lstat, rename } from "node:fs/promises";
 import { join } from "node:path";
-import type { Save, SyncAction, Tag } from "@pond/schema/db";
+import type { NewSave, Save, SyncAction, Tag } from "@pond/schema/db";
 import {
   folders as foldersTable,
   savedViews as savedViewsTable,
@@ -79,6 +79,18 @@ function resolveActor(meta: TxMeta | undefined) {
 }
 
 const SYNC_ACTIONS_RING = 5000;
+/** Queued Saves exist in SQLite before workers materialize their info directory. */
+function canPersistBeforeMaterialization(patch: Partial<NewSave>): boolean {
+  const {
+    createdAt: _createdAt,
+    listKinds: _listKinds,
+    notes: _notes,
+    savedAt: _savedAt,
+    tags: _tags,
+    ...materializedFields
+  } = patch;
+  return Object.keys(materializedFields).length === 0;
+}
 let writesSinceTrim = 0;
 
 const mutationQueue = createMutationQueue();
@@ -255,20 +267,29 @@ async function applyToDisk(tx: Transaction): Promise<void> {
         return;
       }
 
+      const db = await getDb();
+      const rows = await db
+        .select()
+        .from(savesTable)
+        .where(eq(savesTable.id, tx.id));
+      const current = rows[0];
+      if (!current) {
+        log.warn(
+          "[pond executor] update for unknown item (no DB row either)",
+          tx.id,
+        );
+        throw new Error("The Save no longer exists.");
+      }
+
+      if (
+        current.status === "ingesting" &&
+        current.files.length === 0 &&
+        canPersistBeforeMaterialization(tx.patch)
+      ) {
+        return;
+      }
+
       if (tx.files && tx.files.length > 0) {
-        const db = await getDb();
-        const rows = await db
-          .select()
-          .from(savesTable)
-          .where(eq(savesTable.id, tx.id));
-        const current = rows[0];
-        if (!current) {
-          log.warn(
-            "[pond executor] update for unknown item (no DB row either)",
-            tx.id,
-          );
-          throw new Error("The Save no longer exists.");
-        }
         /** SAFETY: `current` is a full row from the DB; the patch only narrows its columns. */
         const merged = { ...current, ...tx.patch } as Save;
         log.info(

@@ -3,24 +3,37 @@ import { cp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { app, shell } from "electron";
 import log from "electron-log/main.js";
+import type { ExtensionBrowser } from "../../shared/browser-extension-contracts";
 import type { QueryResult } from "../../shared/query-contracts";
 
-const FOLDER_NAME = "Pond Extension";
+const TARGETS = {
+  chrome: {
+    folder: "Pond Extension",
+    output: "chrome-mv3",
+    resource: "extension",
+  },
+  firefox: {
+    folder: "Pond Extension Firefox",
+    output: "firefox-mv3",
+    resource: "extension-firefox",
+  },
+} as const;
 
-function bundledExtensionDir(): string | null {
+function bundledExtensionDir(target: ExtensionBrowser): string | null {
+  const spec = TARGETS[target];
   const candidates = app.isPackaged
-    ? [join(process.resourcesPath, "extension")]
-    : [join(app.getAppPath(), "..", "extension", ".output", "chrome-mv3")];
+    ? [join(process.resourcesPath, spec.resource)]
+    : [join(app.getAppPath(), "..", "extension", ".output", spec.output)];
   return (
     candidates.find((dir) => existsSync(join(dir, "manifest.json"))) ?? null
   );
 }
 
-/** Chrome loads unpacked extensions by folder path, so the copy keeps one stable location for updates. */
-export async function installBrowserExtension(): Promise<
-  QueryResult<"extension.install">
-> {
-  const source = bundledExtensionDir();
+/** Unpacked copies stay at one Downloads path so the browser can reload the same folder. */
+export async function installBrowserExtension(
+  target: ExtensionBrowser = "chrome",
+): Promise<QueryResult<"extension.install">> {
+  const source = bundledExtensionDir(target);
   if (!source) {
     return {
       ok: false,
@@ -29,10 +42,10 @@ export async function installBrowserExtension(): Promise<
         : "Build the extension first, then try again.",
     };
   }
-  const target = join(app.getPath("downloads"), FOLDER_NAME);
+  const destination = join(app.getPath("downloads"), TARGETS[target].folder);
   try {
-    await rm(target, { recursive: true, force: true });
-    await cp(source, target, { recursive: true });
+    await rm(destination, { recursive: true, force: true });
+    await cp(source, destination, { recursive: true });
   } catch (err) {
     log.warn("[pond extension] copy failed", err);
     return {
@@ -40,6 +53,6 @@ export async function installBrowserExtension(): Promise<
       error: "Pond couldn't save the extension to Downloads. Try again.",
     };
   }
-  shell.showItemInFolder(target);
-  return { ok: true, path: target };
+  shell.showItemInFolder(destination);
+  return { ok: true, path: destination };
 }

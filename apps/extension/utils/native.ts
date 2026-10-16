@@ -8,14 +8,14 @@ import {
 export async function nativeCall(
   request: NativeRequest,
 ): Promise<NativeResponse> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, request, (response) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false, error: "offline" });
-        return;
-      }
-      const parsed = nativeResponseSchema.safeParse(response);
-      resolve(parsed.success ? parsed.data : { ok: false, error: "offline" });
-    });
-  });
+  try {
+    const response = await browser.runtime.sendNativeMessage(
+      NATIVE_HOST_NAME,
+      request,
+    );
+    const parsed = nativeResponseSchema.safeParse(response);
+    return parsed.success ? parsed.data : { ok: false, error: "offline" };
+  } catch {
+    return { ok: false, error: "offline" };
+  }
 }

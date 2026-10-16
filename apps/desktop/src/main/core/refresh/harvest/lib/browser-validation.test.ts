@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildCosmosListExpression } from "../cosmos/list";
 import { buildInstagramListExpression } from "../instagram/list";
 import { inPageInstagramNormalize } from "../instagram/normalize";
+import { inPagePinterestNormalize } from "../pinterest/normalize";
 import { buildRedditListExpression } from "../reddit/list";
 import { inPageTiktokNormalize } from "../tiktok/normalize";
 import { browserValidationSource } from "./browser-validation-source";
@@ -48,6 +49,32 @@ describe("standalone harvest validation", () => {
         location: { origin: "https://www.tiktok.com" },
       }),
     ).toBe("1234567890");
+  });
+
+  it("preserves the Pinterest image URL that loaded in the browser", async () => {
+    const imageUrl =
+      "https://i.pinimg.com/736x/96/1a/da/961adaf7db83e6d449a67674731c29d5.jpg";
+    const expression = buildItemExpression(
+      inPagePinterestNormalize,
+      (_arg, norm) => norm.extractPinPageMeta(),
+      "",
+    );
+    const result = await runInNewContext(expression, {
+      URL,
+      location: { origin: "https://www.pinterest.com" },
+      document: {
+        documentElement: { lang: "" },
+        querySelector: (selector: string) =>
+          selector.includes('data-test-id="pin-closeup-image"')
+            ? { src: imageUrl, currentSrc: imageUrl }
+            : null,
+      },
+    });
+
+    expect(result).toMatchObject({
+      mediaUrl: imageUrl,
+      mediaUrls: [{ url: imageUrl, type: "image" }],
+    });
   });
 
   it("preserves valid TikTok fields and drops malformed optional metrics", () => {

@@ -34,10 +34,16 @@ import {
   ShellHintSchema,
 } from "../shared/shell-hint";
 import type { ShortcutId } from "../shared/shortcuts";
+import {
+  type UpdateNotice,
+  type UpdateNoticeInput,
+  UpdateNoticeSchema,
+} from "../shared/update-notice";
 
 import type {
   WireJson,
   WireSessionImported,
+  WireSessionImportFailed,
   WireSyncAction,
   WireSyncStatusUpdate,
   WireUndoState,
@@ -325,6 +331,15 @@ const api = {
     return () => ipcRenderer.off(IPC.sessionImported, listener);
   },
 
+  onSessionImportFailed(
+    cb: (payload: WireSessionImportFailed) => void,
+  ): () => void {
+    const listener = (_: IpcRendererEvent, payload: WireSessionImportFailed) =>
+      cb(payload);
+    ipcRenderer.on(IPC.sessionImportFailed, listener);
+    return () => ipcRenderer.off(IPC.sessionImportFailed, listener);
+  },
+
   onSyncStatus(cb: (update: WireSyncStatusUpdate) => void): () => void {
     const listener = (_: IpcRendererEvent, update: WireSyncStatusUpdate) =>
       cb(update);
@@ -337,6 +352,13 @@ const api = {
       cb(status);
     ipcRenderer.on(IPC.storageStatus, listener);
     return () => ipcRenderer.off(IPC.storageStatus, listener);
+  },
+
+  onUpdateNotice(cb: (notice: UpdateNotice) => void): () => void {
+    const listener = (_: IpcRendererEvent, payload: UpdateNoticeInput) =>
+      cb(UpdateNoticeSchema.parse(payload));
+    ipcRenderer.on(IPC.updateNotice, listener);
+    return () => ipcRenderer.off(IPC.updateNotice, listener);
   },
 
   governorSetPaused(

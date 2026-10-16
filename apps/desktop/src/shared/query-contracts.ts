@@ -6,12 +6,19 @@ import type {
   SavedView,
   Source,
   Tag,
-  TagGroup,
   VideoDownloadSettings,
 } from "@pond/schema/db";
 import type { Query } from "@pond/schema/filters/types";
 import type { z } from "zod";
+import type {
+  AccountQueryInputs,
+  AccountQueryResults,
+} from "./account-contracts";
 import type { assistantSend } from "./assistant";
+import type {
+  BrowserExtensionQueryInputs,
+  BrowserExtensionQueryResults,
+} from "./browser-extension-contracts";
 import type { BulkQueryInputs, BulkQueryResults } from "./bulk-contracts";
 import type {
   ConversionQueryInputs,
@@ -68,6 +75,10 @@ import type {
   SavesReadQueryInputs,
   SavesReadQueryResults,
 } from "./saves-read-contracts";
+import type {
+  TagGroupQueryInputs,
+  TagGroupQueryResults,
+} from "./tag-group-contracts";
 import type {
   TransferQueryInputs,
   TransferQueryResults,
@@ -134,7 +145,9 @@ interface LibraryReplicationConflict {
 export type { OkResult } from "./query-contracts-shared";
 
 export interface QueryInputs
-  extends TransferQueryInputs,
+  extends AccountQueryInputs,
+    TransferQueryInputs,
+    BrowserExtensionQueryInputs,
     BulkQueryInputs,
     FolderQueryInputs,
     InspectQueryInputs,
@@ -146,7 +159,8 @@ export interface QueryInputs
     SavesClipboardQueryInputs,
     SavesOpenWithQueryInputs,
     QueueQueryInputs,
-    LibraryRepairQueryInputs {
+    LibraryRepairQueryInputs,
+    TagGroupQueryInputs {
   "saves.understandMedia": MediaUnderstandInput;
   "folders.rules.get": { id: string };
   "folders.rules.set": { id: string; tags: string[]; applyExisting?: boolean };
@@ -199,29 +213,11 @@ export interface QueryInputs
   "tags.delete": NameInput;
   "tags.convertToGroup": NameInput;
   "tags.setForSave": { saveId: string; tags: string[] };
-  "tagGroups.create": { name: string; color?: string | null };
-  "tagGroups.rename": RenameInput;
-  "tagGroups.update": {
-    name: string;
-    patch: {
-      name?: string;
-      description?: string | null;
-      color?: string | null;
-      sortOrder?: number;
-      collapsed?: boolean;
-    };
-  };
-  "tagGroups.delete": NameInput;
-  "tagGroups.addTags": { tags: string[]; group: string };
-  "tagGroups.removeTag": { tag: string; group: string };
   "settings.setVideoDownload": Partial<VideoDownloadSettings>;
   "settings.setImageDownload": Partial<ImageDownloadSettings>;
   "settings.setPrefs": WirePrefsPatch;
   "feedback.emit": { event: FeedbackEvent };
   "notifications.openSettings": EmptyInput;
-  "accounts.setHandle": { accountId: string; handle: string | null };
-  "accounts.setLabel": { accountId: string; label: string | null };
-  "accounts.disconnect": { accountId: string };
   "watches.resolve": { source: Source; input: string };
   "watches.add": { source: Source; handle: string; label?: string | null };
   "watches.setLabel": { watchId: string; label: string | null };
@@ -275,6 +271,7 @@ export interface QueryInputs
     ops?: Op[];
   };
   "downloads.ingestingOrFailed": EmptyInput;
+  "downloads.clearUnfinished": EmptyInput;
   "downloads.activity": EmptyInput;
   "sync.history": { source: Source; accountId?: string; limit?: number };
   "sync.recent": { limit?: number };
@@ -331,8 +328,10 @@ export interface QueryInputs
   "storage.guardState": EmptyInput;
   "api.restart": EmptyInput;
   "updates.applyPrefs": EmptyInput;
+  "updates.currentNotice": EmptyInput;
   "updates.checkNow": EmptyInput;
-  "extension.install": EmptyInput;
+  "updates.download": EmptyInput;
+  "updates.install": EmptyInput;
   "quickCapture.applyPrefs": EmptyInput;
   "window.applyPrefs": EmptyInput;
   "system.applyPrefs": EmptyInput;
@@ -350,7 +349,9 @@ export interface QueryInputs
 }
 
 export interface QueryResults
-  extends TransferQueryResults,
+  extends AccountQueryResults,
+    TransferQueryResults,
+    BrowserExtensionQueryResults,
     BulkQueryResults,
     SystemQueryResults,
     FolderQueryResults,
@@ -363,7 +364,8 @@ export interface QueryResults
     SavesClipboardQueryResults,
     SavesOpenWithQueryResults,
     QueueQueryResults,
-    LibraryRepairQueryResults {
+    LibraryRepairQueryResults,
+    TagGroupQueryResults {
   "folders.rules.get": { tags: string[]; inheritedTags: string[] };
   "folders.rules.set": OkResult<{ affected: number }>;
   "folders.createBatch": Folder[];
@@ -431,15 +433,10 @@ export interface QueryResults
   "tags.delete": OkResult<{ affected: number }>;
   "tags.convertToGroup": OkResult;
   "tags.setForSave": OkResult;
-  "tagGroups.list": (TagGroup & { tagIds: string[]; tagNames: string[] })[];
-  "tagGroups.rename": OkResult;
-  "tagGroups.update": OkResult;
-  "tagGroups.delete": OkResult<{ affected: number }>;
-  "tagGroups.addTags": OkResult<{ affected: number }>;
-  "tagGroups.removeTag": OkResult;
   "pipeline.status": { paused: boolean; inflight: number };
   "pipeline.inflight": string[];
   "downloads.ingestingOrFailed": string[];
+  "downloads.clearUnfinished": { changed: number; ids: string[] };
   "downloads.activity": DownloadActivity[];
   "downloads.history": {
     rows: {
@@ -484,7 +481,6 @@ export interface QueryResults
   "folders.setSaveFolders": OkResult;
   "folders.addSaves": OkResult;
   "tags.create": OkResult;
-  "tagGroups.create": OkResult;
   "agent.saveKey": OkResult;
   "settings.getPrefs": Prefs;
   "settings.globalShortcutStatus": GlobalShortcutStatus;
