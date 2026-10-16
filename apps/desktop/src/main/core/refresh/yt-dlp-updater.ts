@@ -12,6 +12,7 @@ import {
 import { join } from "node:path";
 import log from "electron-log/main.js";
 import { z } from "zod";
+import { killProcessTree } from "../../lib/process-tree";
 import {
   invalidateBinariesCache,
   userBinDir,
@@ -214,10 +215,11 @@ function smokeTest(binaryPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const child = spawn(binaryPath, ["--version"], {
       stdio: ["ignore", "ignore", "ignore"],
+      windowsHide: true,
     });
     const timer = setTimeout(() => {
       try {
-        child.kill("SIGKILL");
+        killProcessTree(child, "SIGKILL");
       } catch {}
       resolve(false);
     }, SMOKE_TIMEOUT_MS);
