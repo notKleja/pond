@@ -24,7 +24,7 @@ async function runRegistry(args: string[]): Promise<void> {
 }
 
 /** Windows lists per-user fonts by registry value; the name only has to be unique. */
-export function windowsFontValueName(installedPath: string): string {
+function windowsFontValueName(installedPath: string): string {
   const extension = extname(installedPath);
   const kind = extension.toLowerCase() === ".otf" ? "OpenType" : "TrueType";
   return `Pond ${basename(installedPath, extension)} (${kind})`;

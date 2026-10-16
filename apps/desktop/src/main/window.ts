@@ -51,20 +51,6 @@ export function setCloseToTray(enabled: boolean): void {
   closeToTrayEnabled = enabled;
 }
 
-export function shouldHideWindowOnClose(input: {
-  isQuitting: boolean;
-  closeToTrayEnabled: boolean;
-  hasTray: boolean;
-  isMainWindow: boolean;
-}): boolean {
-  return (
-    !input.isQuitting &&
-    input.closeToTrayEnabled &&
-    input.hasTray &&
-    input.isMainWindow
-  );
-}
-
 export function queueTrayRefresh(): void {
   if (!tray || trayRefreshQueued) return;
   trayRefreshQueued = true;
@@ -190,17 +176,11 @@ async function buildLibraryWindow(): Promise<BrowserWindow> {
   win.on("move", saveBounds);
 
   win.on("close", (event) => {
+    if (isQuitting) return;
+    if (!closeToTrayEnabled) return;
+    if (!tray) return;
     if (win.isDestroyed()) return;
-    if (
-      !shouldHideWindowOnClose({
-        isQuitting,
-        closeToTrayEnabled,
-        hasTray: tray !== null,
-        isMainWindow: mainWindowState.current === win,
-      })
-    ) {
-      return;
-    }
+    if (mainWindowState.current !== win) return;
     event.preventDefault();
     win.hide();
     if (process.platform === "darwin") app.dock?.hide();

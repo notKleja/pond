@@ -16,7 +16,7 @@ async function ready(baseUrl: string, timeout: number): Promise<boolean> {
 export function pondLaunchCommand(
   platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
-): { file: string; args: string[] } {
+) {
   if (platform === "darwin")
     return { file: "open", args: ["-gj", "-a", "Pond"] };
   if (platform === "win32")
