@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -103,6 +104,21 @@ describe("native host manifests", () => {
         expect.stringContaining("BraveSoftware\\Brave-Browser"),
       ]),
     );
+  });
+
+  it("removes every registered Windows key in the NSIS uninstaller", () => {
+    const installer = readFileSync(
+      new URL("../../../packaging/installer.nsh", import.meta.url),
+      "utf8",
+    );
+    for (const key of [
+      ...WINDOWS_NATIVE_MESSAGING_REGISTRY_KEYS,
+      ...WINDOWS_FIREFOX_REGISTRY_KEYS,
+    ]) {
+      expect(installer).toContain(
+        `DeleteRegKey HKCU "${key.replace("HKCU\\", "")}"`,
+      );
+    }
   });
 
   it("writes an absolute native messaging executable into the manifest", () => {

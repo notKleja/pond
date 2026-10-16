@@ -10,6 +10,9 @@ asarUnpack:
   - "**/node_modules/better-sqlite3/**"
   - "**/node_modules/sqlite-vec/**"
   - "**/node_modules/sqlite-vec-*/**"
+  # onnxruntime loads sibling shared libraries (onnxruntime.dll on Windows)
+  # that the .node unpack above does not take along.
+  - "**/node_modules/onnxruntime-node/**"
   # sharp loads a sibling dylib. The .node unpack above does not take it along.
   - "**/node_modules/@img/**"
   - "**/node_modules/sharp/**"
@@ -171,6 +174,8 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: ${productName}
   deleteAppDataOnUninstall: false
+  # Removes the HKCU registrations Pond writes at runtime; keeps the Library.
+  include: packaging/installer.nsh
 
 # Linux remains disabled until that build ships.
 # linux:
