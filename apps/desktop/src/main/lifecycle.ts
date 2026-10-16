@@ -42,3 +42,12 @@ export function resolveLaunchHidden(input: {
   if (input.platform === "win32") return input.requested && input.trayEnabled;
   return input.requested;
 }
+
+/**
+ * The MCP server speaks JSON-RPC on stdout, so nothing else may write there.
+ * The log console transport prints to stdout and must be off from the first
+ * log line, not only once the server starts.
+ */
+export function consoleLoggingEnabled(argv: readonly string[]): boolean {
+  return !argv.includes("--mcp");
+}

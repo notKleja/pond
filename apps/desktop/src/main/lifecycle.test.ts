@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  consoleLoggingEnabled,
   protocolRegistration,
   resolveLaunchHidden,
   shouldStayResident,
@@ -107,5 +108,12 @@ describe("resolveLaunchHidden", () => {
         trayEnabled: false,
       }),
     ).toBe(true);
+  });
+});
+
+describe("consoleLoggingEnabled", () => {
+  it("keeps stdout clean for the MCP server only", () => {
+    expect(consoleLoggingEnabled(["Pond.exe", "--mcp"])).toBe(false);
+    expect(consoleLoggingEnabled(["Pond.exe", "pond://library"])).toBe(true);
   });
 });

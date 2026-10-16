@@ -63,6 +63,7 @@ import { disableMenuActionImages } from "./lib/menu-action-images";
 import { killTrackedProcessTrees } from "./lib/process-tree";
 import { recoverUnreadableLibrary } from "./library-recovery";
 import {
+  consoleLoggingEnabled,
   protocolRegistration,
   resolveLaunchHidden,
   shouldStayResident,
@@ -130,6 +131,7 @@ if (process.platform === "darwin") {
 if (process.platform === "win32") app.setAppUserModelId("so.pond.desktop");
 
 log.initialize();
+if (!consoleLoggingEnabled(process.argv)) log.transports.console.level = false;
 log.info("[pond] main starting", {
   version: app.getVersion(),
   platform: process.platform,
