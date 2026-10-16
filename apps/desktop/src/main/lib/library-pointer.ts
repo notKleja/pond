@@ -6,7 +6,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, posix, resolve, win32 } from "node:path";
+import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { app } from "electron";
 import { z } from "zod";
 
@@ -29,9 +29,9 @@ export function isPathInside(
   target: string,
   platform: NodeJS.Platform = process.platform,
 ): boolean {
-  const path = platform === "win32" ? win32 : posix;
-  const child = path.relative(root, target);
-  return child === "" || (!child.startsWith("..") && !path.isAbsolute(child));
+  if (platform !== "win32") return target.startsWith(`${root}/`);
+  const child = win32.relative(root, target);
+  return child === "" || (!child.startsWith("..") && !win32.isAbsolute(child));
 }
 
 export function readLibraryPointer(): string | null {
