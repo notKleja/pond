@@ -69,7 +69,7 @@ import { writeNativeHostManifests } from "./native/manifests";
 import { startNativeServer, stopNativeServer } from "./native/server";
 import { libraryRoot, type PondPaths, resolvePaths } from "./paths";
 import { registerProtocol, registerScheme } from "./protocol";
-import { runtimeControls } from "./runtime";
+import { LOGIN_LAUNCH_ARG, runtimeControls } from "./runtime";
 import { configureSessionDefaults } from "./session-config";
 import {
   logStartupTiming,
@@ -118,6 +118,8 @@ if (process.platform === "darwin") {
   });
 }
 
+if (process.platform === "win32") app.setAppUserModelId("so.pond.desktop");
+
 log.initialize();
 log.info("[pond] main starting", {
   version: app.getVersion(),
@@ -148,10 +150,13 @@ registerScheme();
 
 const gotSingleInstanceLock = wantsMcp || app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
-  app.quit();
+  /** quit() is async; startup below would keep running against the live library. */
+  app.exit(0);
 }
 
-if (!process.env.POND_SANDBOX && process.defaultApp) {
+if (!gotSingleInstanceLock) {
+  // This process is exiting; leave the protocol registration alone.
+} else if (!process.env.POND_SANDBOX && process.defaultApp) {
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient("pond", process.execPath, [
       resolvePath(process.argv[1] ?? ""),
@@ -183,6 +188,7 @@ app.on("second-instance", (_event, argv) => {
 });
 
 app.whenReady().then(async () => {
+  if (!gotSingleInstanceLock) return;
   markStartup("app-ready");
   if (process.platform === "darwin" && !app.isPackaged) {
     const { applyAppIcon } = await import("./core/app-icon");
@@ -232,7 +238,9 @@ app.whenReady().then(async () => {
       .catch(() => false),
   );
   const launchedHidden =
-    wantsLaunchHidden || loginItem.wasOpenedAtLogin === true;
+    wantsLaunchHidden ||
+    loginItem.wasOpenedAtLogin === true ||
+    (process.platform === "win32" && process.argv.includes(LOGIN_LAUNCH_ARG));
   if (shouldOpenInitialWindow(launchedHidden, initialDestination)) {
     await createWindow();
   }
