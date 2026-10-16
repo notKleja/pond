@@ -16,8 +16,11 @@
 
 /** Same framing as Chrome native messaging: 32-bit little-endian length, then UTF-8 JSON. */
 #define MAX_MSG (8u * 1024u * 1024u)
+/** Chrome closes the port when the host sends more than 1 MiB, so cap below it. */
+#define MAX_RESPONSE (1024u * 1024u - 4096u)
 
 static const char *offline_json = "{\"ok\":false,\"error\":\"offline\"}";
+static const char *too_large_json = "{\"ok\":false,\"error\":\"too_large\"}";
 
 static int read_full(
 #ifdef _WIN32
@@ -127,11 +130,29 @@ static HANDLE connect_to_pond(void) {
 }
 #endif
 
+static int write_reply(const void *body, uint32_t len) {
+  if (fwrite(&len, 4, 1, stdout) != 1) return -1;
+  if (fwrite(body, 1, len, stdout) != len) return -1;
+  return fflush(stdout) == 0 ? 0 : -1;
+}
+
+static void reply_json(const char *json) {
+  (void)write_reply(json, (uint32_t)strlen(json));
+}
+
 static void reply_offline(void) {
-  uint32_t len = (uint32_t)strlen(offline_json);
-  (void)fwrite(&len, 4, 1, stdout);
-  (void)fwrite(offline_json, 1, len, stdout);
-  (void)fflush(stdout);
+  reply_json(offline_json);
+}
+
+/** Discards an oversize request so the browser's write does not fail mid-message. */
+static void drain_stdin(uint32_t n) {
+  unsigned char scratch[4096];
+  while (n > 0) {
+    size_t want = n < sizeof scratch ? n : sizeof scratch;
+    size_t got = fread(scratch, 1, want, stdin);
+    if (got == 0) return;
+    n -= (uint32_t)got;
+  }
 }
 
 int main(void) {
@@ -164,7 +185,8 @@ int main(void) {
   }
   if (req_len == 0 || req_len > MAX_MSG) {
     fprintf(stderr, "pond-native-host: request too large (%u)\n", req_len);
-    reply_offline();
+    reply_json(too_large_json);
+    drain_stdin(req_len);
     return 0;
   }
 
@@ -227,6 +249,15 @@ int main(void) {
     reply_offline();
     return 0;
   }
+  if (res_len > MAX_RESPONSE) {
+#ifdef _WIN32
+    CloseHandle(fd);
+#else
+    close(fd);
+#endif
+    reply_json(too_large_json);
+    return 0;
+  }
 
   unsigned char *res = malloc(res_len);
   if (!res) {
@@ -254,9 +285,11 @@ int main(void) {
   close(fd);
 #endif
 
-  (void)fwrite(&res_len, 4, 1, stdout);
-  (void)fwrite(res, 1, res_len, stdout);
-  (void)fflush(stdout);
+  int written = write_reply(res, res_len);
   free(res);
+  if (written != 0) {
+    fprintf(stderr, "pond-native-host: failed to write response\n");
+    return 1;
+  }
   return 0;
 }
