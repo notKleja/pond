@@ -6,8 +6,8 @@
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
-#include <sddl.h>
 #include <windows.h>
+#include <sddl.h>
 #else
 #include <sys/socket.h>
 #include <sys/un.h>
