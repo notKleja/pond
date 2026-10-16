@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 async function ready(baseUrl: string, timeout: number): Promise<boolean> {
@@ -12,20 +13,31 @@ async function ready(baseUrl: string, timeout: number): Promise<boolean> {
   }
 }
 
-function launchPond(platform = process.platform): void {
-  const command =
-    platform === "darwin"
-      ? { file: "open", args: ["-gj", "-a", "Pond"] }
-      : platform === "win32"
-        ? {
-            file: "cmd.exe",
-            args: ["/d", "/s", "/c", "start", '""', "Pond"],
-          }
-        : { file: "gtk-launch", args: ["pond"] };
+export function pondLaunchCommand(
+  platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): { file: string; args: string[] } {
+  if (platform === "darwin")
+    return { file: "open", args: ["-gj", "-a", "Pond"] };
+  if (platform === "win32")
+    return env.LOCALAPPDATA
+      ? {
+          file: join(env.LOCALAPPDATA, "Programs", "Pond", "Pond.exe"),
+          args: [],
+        }
+      : { file: "explorer.exe", args: ["pond://library"] };
+  return { file: "gtk-launch", args: ["pond"] };
+}
+
+function launchPond(): void {
+  const command = pondLaunchCommand();
   const child = spawn(command.file, command.args, {
     detached: true,
     stdio: "ignore",
+    windowsHide: true,
   });
+  // A missing executable surfaces as the readiness timeout below.
+  child.on("error", () => {});
   child.unref();
 }
 
